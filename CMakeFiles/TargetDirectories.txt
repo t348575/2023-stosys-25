@@ -1,0 +1,10 @@
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/install/strip.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/install.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/list_install_components.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/rebuild_cache.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/edit_cache.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/m3.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/install/local.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/m2.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/stosys.dir
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/CMakeFiles/m1.dir

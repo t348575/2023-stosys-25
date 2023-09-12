@@ -1,0 +1,40 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/src/common/utils.h
+cstdint
+-
+string
+-
+
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/src/m23-ftl/m2.cpp
+sys/types.h
+-
+unistd.h
+-
+time.h
+-
+cstdio
+-
+cassert
+-
+cstdlib
+-
+cstring
+-
+./zns_device.h
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/src/m23-ftl/zns_device.h
+../common/utils.h
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/src/common/utils.h
+
+/home/user/m1/2023-msc-stosys-skeleton-af65a8c/src/m23-ftl/zns_device.h
+cstdint
+-
+libnvme.h
+-
+
