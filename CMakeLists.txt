@@ -22,7 +22,7 @@ cmake_minimum_required(VERSION 3.16)
 project(stosys-project VERSION 1.0.1 DESCRIPTION "StoSys project code for Storage Systems class at VU Amsterdam. (c) Animesh Trivedi.")
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 #add_compile_options("-std=c++17")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -57,7 +57,7 @@ set(CMAKE_BUILD_TYPE Debug) # or debug if you need to use gdb on it.
 set(CMAKE_CXX_COMPILER g++) # or clang++
 #set(CMAKE_CXX_COMPILER clang++) # or clang++
 message("compiler is ${CMAKE_CXX_COMPILER_ID}   and name is ${CMAKE_CXX_COMPILER}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0  -ggdb -Wl,--no-as-needed -Wall -Wextra -Wundef")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2  -ggdb -Wl,--no-as-needed -Wall -Wextra -Wundef")
 # optimization flags
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Ofast -ffast-math -funroll-loops -march=native") # get crazy here
 # debug flags, needs a bit of customization
@@ -96,6 +96,9 @@ src/common/stosys_debug.h src/common/unused.h)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m1 ${NVME_LIBRARIES} pthread)
 
+add_library(ftl SHARED
+src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h)
+
 add_library(stosys SHARED 
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
@@ -120,11 +123,11 @@ install(TARGETS stosys
 # library is done. Now link it with all following milestones 2, 3, 4 and 5
 add_executable(m2 src/m23-ftl/m2.cpp)
 add_definitions (${NVME_CFLAGS})
-target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys)
+target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys ftl)
 
 add_executable(m3 src/m23-ftl/m3.cpp)
 add_definitions (${NVME_CFLAGS})
-target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys)
+target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys ftl)
 
 # starting here, we need more setup for RocksDB
 if(STOSYS_M45)

@@ -22,67 +22,91 @@ SOFTWARE.
 
 #include <assert.h>
 #include <errno.h>
-#include <stdio.h>
-#include <libnvme.h>
+#include <fcntl.h>
+#include <functional>
+#include <iostream>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-#include "m1_assignment.h"
 #include "../common/unused.h"
+#include "device.h"
+#include "m1_assignment.h"
 
-extern "C"
-{
+extern "C" {
 
-int ss_nvme_device_io_with_mdts(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer, uint64_t buf_size,
-                                uint64_t lba_size, uint64_t mdts_size, bool read){
-    int ret = -ENOSYS;
-    // this is to supress gcc warnings, remove it when you complete this function 
-    UNUSED(fd);
-    UNUSED(nsid);
-    UNUSED(slba);
+int ss_nvme_device_io_with_mdts(int fd, uint32_t nsid, uint64_t slba,
+                                uint16_t numbers, void *buffer,
+                                uint64_t buf_size, uint64_t lba_size,
+                                uint64_t mdts_size, bool read) {
     UNUSED(numbers);
-    UNUSED(buffer);
-    UNUSED(buf_size);
-    UNUSED(lba_size);
-    UNUSED(mdts_size);
-    UNUSED(read);
-    //test  to save in interior of file
+    int ret = 0;
+    uint64_t size = buf_size;
+    std::function<int(int, uint32_t, uint64_t, uint16_t, void *, uint64_t)> op;
+    if (read) {
+        op = ss_nvme_device_read;
+    } else {
+        op = ss_nvme_device_write;
+    }
+
+    while (size > 0) {
+        uint64_t op_size = std::min(mdts_size, size);
+        numbers = op_size / lba_size;
+        ret = op(fd, nsid, slba, numbers, (char *)buffer + (buf_size - size),
+                 op_size);
+        if (ret != 0) {
+            return ret;
+        }
+        update_lba(slba, lba_size, numbers);
+        size -= op_size;
+    }
     return ret;
 }
 
-int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer, uint64_t buf_size) {
-
-    return nvme_read(fd, nsid, slba, numbers-1, 0, 0, 0, 0, 0, (uint64_t) buf_size, buffer, 0, NULL);
+int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers,
+                        void *buffer, uint64_t buf_size) {
+    return nvme_read(fd, nsid, slba, numbers - 1, 0, NVME_IO_DSM_FREQ_UNSPEC, 0,
+                     0, 0, buf_size, buffer, 0, nullptr);
 }
 
-int ss_nvme_device_write(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer, uint64_t buf_size) {
-
-    return nvme_write(fd, nsid, slba, numbers-1, 0, 0, 0, 0, 0, 0,(uint32_t) buf_size, buffer, 0, NULL);
+int ss_nvme_device_write(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers,
+                         void *buffer, uint64_t buf_size) {
+    return nvme_write(fd, nsid, slba, numbers - 1, 0, NVME_IO_DSM_FREQ_UNSPEC,
+                      0, 0, 0, 0, buf_size, buffer, 0, nullptr);
 }
 
 int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
-
-    return nvme_zns_mgmt_send(fd, nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, NULL);
+    return nvme_zns_mgmt_send(fd, nsid, slba, false, NVME_ZNS_ZSA_RESET, 0,
+                              nullptr);
 }
 
-// this does not take slba because it will return that
-int ss_zns_device_zone_append(int fd, uint32_t nsid, uint64_t zslba, int numbers, void *buffer, uint32_t buf_size, uint64_t *written_slba){
-
-    return nvme_zns_append(fd, nsid, zslba, (uint16_t) numbers-1, 0, 0, 0, 0, buf_size, buffer, 0, NULL, (__u64 *) written_slba);
+int ss_zns_device_zone_append(int fd, uint32_t nsid, uint64_t zslba,
+                              int numbers, void *buffer, uint32_t buf_size,
+                              uint64_t *written_slba) {
+    return nvme_zns_append(fd, nsid, zslba, numbers - 1, 0, 0, 0, 0, buf_size,
+                           buffer, 0, nullptr, (__u64 *)written_slba);
 }
 
-void update_lba(uint64_t &write_lba, const uint32_t lba_size, const int count){
+void update_lba(uint64_t &write_lba, const uint32_t lba_size, const int count) {
+    UNUSED(lba_size);
     write_lba += count;
 }
 
-// see 5.15.2.2 Identify Controller data structure (CNS 01h)
-// see how to pass any number of variables in a C/C++ program https://stackoverflow.com/questions/1579719/variable-number-of-parameters-in-function-in-c
-// feel free to pass any relevant function parameter to this function extract MDTS 
-// you must return the MDTS as the return value of this function 
-uint64_t get_mdts_size(int count, ...){
-    UNUSED(count);
-    //FIXME
-    return 4096;
-    uint64_t cap = mmio_read64(count);
+uint64_t get_mdts_size(int fd, ...) {
+    nvme_id_ctrl identify_ctrl;
+    int ret = nvme_identify_ctrl(fd, &identify_ctrl);
+    if (ret != 0) {
+        std::cerr << "ERROR: Could not get nvme idenitfy control: "
+                  << std::to_string(ret) << std::endl;
+    }
 
+    void *registers = mmap(NULL, getpagesize(), PROT_READ, MAP_SHARED, fd, 0);;
+    __u64 cap = le64_to_cpu((*(__le64 *)registers));
+    munmap(registers, getpagesize());
+
+    __u32 mpsmin = ((__u8 *)&cap)[6] & 0x0F;
+    __u32 cap_mpsmin = 1 << (12 + mpsmin);
+    return (1 << (identify_ctrl.mdts - 1)) * cap_mpsmin;
 }
-
 }
