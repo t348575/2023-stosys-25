@@ -60,7 +60,8 @@ static int test_write_read_random_LBAs(struct user_zns_device *my_dev, void *buf
         bzero((char*) buf, buf_size);
         ret = zns_udevice_read(my_dev, (i * my_dev->lba_size_bytes), buf, buf_size);
         if(ret != 0){
-            printf("Error: writing the device failed at address 0x%lx [index %lu] \n",
+            std::cout << nvme_status_to_string(ret, false) << std::endl;
+            printf("Error: reading the device failed at address 0x%lx [index %lu] \n",
                    (i * my_dev->lba_size_bytes), (i - start_lba));
             return ret;
         }

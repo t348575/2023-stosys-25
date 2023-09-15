@@ -92,11 +92,13 @@ struct zdev_init_params {
 struct device_data {
 	int fd;
 	uint32_t nsid;
-	std::vector<ftl_info> *log_info;
+	uint32_t mdts;
 };
 
-extern FtlTable log_table;
-extern FtlTable data_table;
+extern FtlTable<std::vector<ftl_record>, ftl_record> log_table;
+extern FtlTable<ftl_record, int> log_info;
+extern FtlTable<ftl_record, int> data_table;
+extern FtlTable<ftl_record, int> data_info;
 
 int init_ss_zns_device(struct zdev_init_params *,
 					   struct user_zns_device **my_dev);
@@ -105,10 +107,8 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address,
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address,
 					  void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
-int convert_log_to_data();
-std::vector<ftl_info>::iterator
-is_address_in_log(const uint64_t &address,
-				  const struct user_zns_device *my_dev);
+int convert_log_to_data(const ftl_record record, int log_idx);
+uint64_t base_l_address(const uint64_t &address, const uint64_t &zone_size);
 };
 
 #endif // STOSYS_PROJECT_ZNS_DEVICE_H
