@@ -32,10 +32,10 @@ SOFTWARE.
 extern "C" {
 // https://github.com/mplulu/google-breakpad/issues/481 - taken from here
 #define typeof __typeof__
-#define container_of(ptr, type, member)                                        \
-	({                                                                         \
-		const typeof(((type *)0)->member) *__mptr = (ptr);                     \
-		(type *)((char *)__mptr - offsetof(type, member));                     \
+#define container_of(ptr, type, member)                                                                                \
+	({                                                                                                                 \
+		const typeof(((type *)0)->member) *__mptr = (ptr);                                                             \
+		(type *)((char *)__mptr - offsetof(type, member));                                                             \
 	})
 
 /* after a successful initialization of a device, you must set these ZNS device
@@ -48,12 +48,11 @@ struct zns_device_testing_params {
 
 struct user_zns_device {
 	/* these are user visible properties */
-	uint32_t lba_size_bytes; // LBA size
-	uint64_t capacity_bytes; // total cpacity of the device in bytes (this would
-							 // be the size of the data zones (excluding the log
-							 // zones))
-	struct zns_device_testing_params
-			tparams; // a few ZNS internal parameter used for testing
+	uint32_t lba_size_bytes;				  // LBA size
+	uint64_t capacity_bytes;				  // total cpacity of the device in bytes (this would
+											  // be the size of the data zones (excluding the log
+											  // zones))
+	struct zns_device_testing_params tparams; // a few ZNS internal parameter used for testing
 	// device's own private pointer, not usable by the user
 	void *_private;
 };
@@ -100,14 +99,11 @@ extern FtlTable<ftl_record, int> log_info;
 extern FtlTable<ftl_record, int> data_table;
 extern FtlTable<ftl_record, int> data_info;
 
-int init_ss_zns_device(struct zdev_init_params *,
-					   struct user_zns_device **my_dev);
-int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address,
-					 void *buffer, uint32_t size);
-int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address,
-					  void *buffer, uint32_t size);
+int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_dev);
+int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
+int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
-int convert_log_to_data(const ftl_record record, int log_idx);
+int convert_log_to_data(const ftl_record record, const int log_idx, int &p_address);
 uint64_t base_l_address(const uint64_t &address, const uint64_t &zone_size);
 };
 

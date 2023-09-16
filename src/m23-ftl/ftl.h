@@ -4,7 +4,6 @@
 #ifndef FTL_H
 #define FTL_H
 
-
 enum status_flag { Valid = 0, Erased = 1, Invalid = 2 };
 
 struct ftl_record {
@@ -12,21 +11,21 @@ struct ftl_record {
 	status_flag flag;
 };
 
-template<class T, class S>
-class FtlTable {
+template <class T, class S> class FtlTable {
 public:
 	void reset();
 	void push_back(T record);
 	void push_back(uint index, S record);
-	bool has(uint64_t index);
+	bool has(uint64_t address);
 	void reserve(uint64_t size);
-	void set_zone_info(uint32_t zone_size) {
-		this->zone_size = zone_size;
-	}
+	void set_zone_info(uint32_t zone_size) { this->zone_size = zone_size; }
 	void set_invalid(int index);
 	void clear_index(int index);
 	void remove_index(int index);
-	void update_write_ptr(int index);
+	uint64_t update_write_ptr(int index);
+	void reset_write_ptr(uint index);
+	int64_t insertion_pos(uint index, uint64_t l_address);
+	uint64_t size_at(uint index);
 	uint32_t get_zone_size() { return zone_size; }
 	uint32_t table_index_size(uint index);
 
