@@ -5,45 +5,44 @@
 #ifndef FTL_H
 #define FTL_H
 
-enum status_flag { Valid = 0, Erased = 1, Invalid = 2 };
+enum status_flag { Valid = 0, Invalid = 2 };
 
 struct ftl_record {
 	uint64_t l_address, p_address, write_ptr;
 	status_flag flag;
 };
 
+// varieties:
+// template class FtlTable<ftl_record, int>;
+// template class FtlTable<std::vector<ftl_record>, ftl_record>;
+
 template <class T, class S> class FtlTable {
 public:
+	// both
+	T get(const uint index);
+	void set(const uint index, const T record);
 	void reset();
 	void push_back(T record);
-	void push_back(uint index, S record);
-	bool has(uint64_t address);
-	void reserve(uint64_t size);
-	void set_zone_info(uint32_t zone_size) { this->zone_size = zone_size; }
-	void set_invalid(int index);
-	void clear_index(int index);
-	void remove_index(int index);
-	uint64_t increment_write_ptr(const int index, const uint64_t value);
-	void reset_write_ptr(uint index);
-	int64_t insertion_pos(uint index, uint64_t l_address);
-	uint64_t size_at(uint index);
-	uint32_t get_zone_size() { return zone_size; }
-	uint32_t table_index_size(uint index);
 	void record_transaction(std::function<void(std::vector<T> &table)> f);
 
-	typename std::vector<T>::iterator end() {
-		auto guard = ReadGuard(*this);
-		return table.end();
-	}
-	typename std::vector<T>::iterator begin() {
-		auto guard = ReadGuard(*this);
-		return table.end();
-	}
+	// FtlTable<ftl_record, int>
+	uint64_t increment_write_ptr(const int index, const uint64_t value);
+	void reset_write_ptr(uint index);
+	void set_invalid(int index);
 	int get_unused_block();
-	void set(const uint index, const T record);
-	T get(const uint index);
+	int does_address_exist(const uint64_t l_address, ftl_record *record);
+
+	// FtlTable<std::vector<ftl_record>, ftl_record>
+	bool has(uint64_t address);
+	uint64_t size_at(uint index);
+	void push_back(uint index, S record);
+	void clear_index(int index);
+	int64_t insertion_pos(uint index, uint64_t l_address);
+	uint32_t table_index_size(uint index);
 	int get_record(const int index, const uint64_t l_address, S &result, uint &result_index);
-	int does_base_address_exist(const uint64_t &address, const uint64_t l_address);
+
+	void set_zone_info(uint32_t zone_size) { this->zone_size = zone_size; }
+	uint32_t get_zone_size() { return zone_size; }
 
 private:
 	class WriteGuard {
