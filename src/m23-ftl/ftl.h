@@ -1,4 +1,5 @@
 #include <shared_mutex>
+#include <functional>
 #include <vector>
 
 #ifndef FTL_H
@@ -28,6 +29,7 @@ public:
 	uint64_t size_at(uint index);
 	uint32_t get_zone_size() { return zone_size; }
 	uint32_t table_index_size(uint index);
+	void record_transaction(std::function<void(std::vector<T> &table)> f);
 
 	typename std::vector<T>::iterator end() {
 		auto guard = ReadGuard(*this);

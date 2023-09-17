@@ -144,3 +144,9 @@ template <> uint64_t LogRecord::size_at(uint index) {
 	auto guard = ReadGuard(*this);
 	return table[index].size();
 }
+
+template<>
+void LogRecord::record_transaction(std::function<void(std::vector<std::vector<ftl_record>> &table)> f) {
+	auto guard = WriteGuard(*this);
+	f(table);
+}
