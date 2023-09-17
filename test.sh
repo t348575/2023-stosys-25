@@ -13,4 +13,4 @@ do
 done
 end=`date +%s.%N`
 
-echo Took $( echo "$end - $start" | bc -l ) 
+echo Took $( echo "$end - $start" | bc -l )

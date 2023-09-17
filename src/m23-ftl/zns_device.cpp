@@ -37,7 +37,6 @@ FtlTable<std::vector<ftl_record>, ftl_record> log_table;
 FtlTable<ftl_record, int> data_table;
 FtlTable<ftl_record, int> log_info;
 FtlTable<ftl_record, int> data_info;
-uint32_t data_info_ptr = 0;
 
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
 							   uint64_t buf_size) {
@@ -230,7 +229,7 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 	int data_table_idx = data_table.does_address_exist(base_address, nullptr);
 	if (data_table_idx != -1) {
 		ftl_record data_record = data_table.get(data_table_idx);
-		data_table.set_invalid(data_table_idx);
+		data_table.set_flag(data_table_idx, status_flag::Invalid);
 
 		uint32_t zone_size = log_table.get_zone_size();
 		log_table.record_transaction([=](std::vector<std::vector<ftl_record>> &table) {
@@ -375,10 +374,11 @@ int convert_log_to_data(const ftl_record record, const int log_idx, int &p_addre
 	data_table.set(
 			data_table_idx,
 			{.l_address = record.l_address, .p_address = record.p_address, .write_ptr = 0, .flag = status_flag::Valid});
-	log_info.set_invalid(log_idx);
+	log_info.set_flag(log_idx, status_flag::Invalid);
 
-	ftl_record data_record = data_info.get(data_info_ptr);
-	data_info_ptr++;
+	int data_info_idx = data_info.get_unused_block();
+	ftl_record data_record = data_info.get(data_info_idx);
+	data_info.set_flag(data_info_idx, status_flag::Valid);
 
 	data_record.flag = status_flag::Invalid;
 	data_record.write_ptr = 0;

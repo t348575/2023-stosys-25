@@ -28,7 +28,7 @@ public:
 	// FtlTable<ftl_record, int>
 	uint64_t increment_write_ptr(const int index, const uint64_t value);
 	void reset_write_ptr(uint index);
-	void set_invalid(int index);
+	void set_flag(int index, status_flag flag);
 	int get_unused_block();
 	int does_address_exist(const uint64_t l_address, ftl_record *record);
 

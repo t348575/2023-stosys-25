@@ -98,9 +98,9 @@ int LogRecord::get_record(const int index, const uint64_t l_address, ftl_record 
 	return -1;
 }
 
-template <> void FtlTable<ftl_record, int>::set_invalid(int index) {
+template <> void FtlTable<ftl_record, int>::set_flag(int index, status_flag flag) {
 	auto guard = WriteGuard(*this);
-	table[index].flag = status_flag::Invalid;
+	table[index].flag = flag;
 }
 
 template <> void LogRecord::clear_index(int index) {
