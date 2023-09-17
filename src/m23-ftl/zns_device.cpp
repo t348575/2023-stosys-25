@@ -109,6 +109,10 @@ int deinit_ss_zns_device(struct user_zns_device *my_dev) {
 	return 0;
 }
 
+int report_zones(int fd, __u32 nsid, __u64 slba, enum nvme_zns_report_options opts, bool partial, __u32 data_len, void *data) {
+	return nvme_zns_mgmt_recv(fd, nsid, slba, NVME_ZNS_ZRA_REPORT_ZONES, opts, partial, data_len, data);
+}
+
 int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device **my_dev) {
 	int fd = nvme_open(params->name);
 	if (fd == -1) {
@@ -122,7 +126,7 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	}
 
 	struct nvme_zone_report zones;
-	ret = nvme_zns_report_zones(fd, nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, false, sizeof(zones), &zones);
+	ret = report_zones(fd, nsid, 0, NVME_ZNS_ZRAS_REPORT_ALL, false, sizeof(zones), &zones);
 	if (ret != 0) {
 		return ret;
 	}

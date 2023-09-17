@@ -257,7 +257,6 @@
 		nvme_identify_ctrl_csi;
 		nvme_identify_ns_csi;
 		nvme_zns_mgmt_send;
-		nvme_zns_report_zones;
 		nvme_open;
 		nvme_scan_namespace;
 		nvme_free_ns;
