@@ -1,7 +1,6 @@
 #include <algorithm>
 
 #include "ftl.h"
-#include "zns_device.h"
 
 template class FtlTable<ftl_record, int>;
 template class FtlTable<std::vector<ftl_record>, ftl_record>;
@@ -24,9 +23,9 @@ template <> bool FtlTable<ftl_record, int>::has(uint64_t address) {
 	return false;
 }
 
-template <> uint64_t FtlTable<ftl_record, int>::update_write_ptr(int index) {
+template <> uint64_t FtlTable<ftl_record, int>::increment_write_ptr(const int index, const uint64_t value) {
 	auto guard = WriteGuard(*this);
-	table[index].write_ptr++;
+	table[index].write_ptr += value;
 	return table[index].write_ptr;
 }
 
@@ -86,9 +85,8 @@ template <class T, class S> void FtlTable<T, S>::set(const uint index, const T r
 }
 
 template <>
-int FtlTable<ftl_record, int>::does_base_address_exist(const uint64_t &address, const struct user_zns_device *my_dev) {
+int FtlTable<ftl_record, int>::does_base_address_exist(const uint64_t &address, const uint64_t l_address) {
 	auto guard = ReadGuard(*this);
-	uint64_t l_address = base_l_address(address, my_dev->tparams.zns_zone_capacity);
 	for (uint i = 0; i < table.size(); i++) {
 		if (table[i].l_address == l_address && table[i].flag == status_flag::Valid) {
 			return i;
@@ -145,8 +143,7 @@ template <> uint64_t LogRecord::size_at(uint index) {
 	return table[index].size();
 }
 
-template<>
-void LogRecord::record_transaction(std::function<void(std::vector<std::vector<ftl_record>> &table)> f) {
+template <> void LogRecord::record_transaction(std::function<void(std::vector<std::vector<ftl_record>> &table)> f) {
 	auto guard = WriteGuard(*this);
 	f(table);
 }

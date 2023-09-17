@@ -1,5 +1,5 @@
-#include <shared_mutex>
 #include <functional>
+#include <shared_mutex>
 #include <vector>
 
 #ifndef FTL_H
@@ -23,7 +23,7 @@ public:
 	void set_invalid(int index);
 	void clear_index(int index);
 	void remove_index(int index);
-	uint64_t update_write_ptr(int index);
+	uint64_t increment_write_ptr(const int index, const uint64_t value);
 	void reset_write_ptr(uint index);
 	int64_t insertion_pos(uint index, uint64_t l_address);
 	uint64_t size_at(uint index);
@@ -43,7 +43,7 @@ public:
 	void set(const uint index, const T record);
 	T get(const uint index);
 	int get_record(const int index, const uint64_t l_address, S &result, uint &result_index);
-	int does_base_address_exist(const uint64_t &address, const struct user_zns_device *my_dev);
+	int does_base_address_exist(const uint64_t &address, const uint64_t l_address);
 
 private:
 	class WriteGuard {

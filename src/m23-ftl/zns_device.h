@@ -104,7 +104,6 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
 int convert_log_to_data(const ftl_record record, const int log_idx, int &p_address);
-uint64_t base_l_address(const uint64_t &address, const uint64_t &zone_size);
 };
 
 #endif // STOSYS_PROJECT_ZNS_DEVICE_H
