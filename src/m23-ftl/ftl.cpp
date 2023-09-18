@@ -1,5 +1,3 @@
-#include <algorithm>
-
 #include "ftl.h"
 
 template class FtlTable<ftl_record, int>;
@@ -18,11 +16,11 @@ template <> uint64_t FtlTable<ftl_record, int>::increment_write_ptr(const int in
 	return table[index].write_ptr;
 }
 
-template <> void FtlTable<ftl_record, int>::reset_write_ptr(uint index) {
+template <> void FtlTable<ftl_record, int>::reset_write_ptr(const uint index) {
 	auto guard = WriteGuard(*this);
 	table[index].write_ptr = 0;
 }
-template <> inline bool LogRecord::has(uint64_t address) {
+template <> inline bool LogRecord::has(const uint64_t address) {
 	auto guard = ReadGuard(*this);
 	for (const auto &i : table) {
 		for (const auto &j : i) {
@@ -35,12 +33,12 @@ template <> inline bool LogRecord::has(uint64_t address) {
 	return false;
 }
 
-template <class T, class S> void FtlTable<T, S>::push_back(T record) {
+template <class T, class S> void FtlTable<T, S>::push_back(const T record) {
 	auto guard = WriteGuard(*this);
 	this->table.push_back(record);
 }
 
-template <> void LogRecord::push_back(uint index, ftl_record record) {
+template <> void LogRecord::push_back(const uint index, const ftl_record record) {
 	auto guard = WriteGuard(*this);
 	this->table[index].push_back(record);
 }
@@ -80,7 +78,7 @@ template <class T, class S> T FtlTable<T, S>::get(const uint index) {
 	return table[index];
 }
 
-template <> uint32_t LogRecord::table_index_size(uint index) {
+template <> uint32_t LogRecord::table_index_size(const uint index) {
 	auto guard = ReadGuard(*this);
 	return table[index].size();
 }
@@ -98,18 +96,17 @@ int LogRecord::get_record(const int index, const uint64_t l_address, ftl_record 
 	return -1;
 }
 
-template <> void FtlTable<ftl_record, int>::set_flag(int index, status_flag flag) {
+template <> void FtlTable<ftl_record, int>::set_flag(const int index, const status_flag flag) {
 	auto guard = WriteGuard(*this);
 	table[index].flag = flag;
 }
 
-template <> void LogRecord::clear_index(int index) {
+template <> void LogRecord::clear_index(const int index) {
 	auto guard = WriteGuard(*this);
 	table[index].clear();
-	table[index].reserve(zone_size);
 }
 
-template <> int64_t LogRecord::insertion_pos(uint index, uint64_t l_address) {
+template <> int64_t LogRecord::insertion_pos(const uint index, const uint64_t l_address) {
 	auto guard = ReadGuard(*this);
 	for (int64_t i = table[index].size() - 1; i > -1; i--) {
 		if (!(table[index][i].l_address > l_address)) {
@@ -119,12 +116,13 @@ template <> int64_t LogRecord::insertion_pos(uint index, uint64_t l_address) {
 	return 0;
 }
 
-template <> uint64_t LogRecord::size_at(uint index) {
+template <> uint64_t LogRecord::size_at(const uint index) {
 	auto guard = ReadGuard(*this);
 	return table[index].size();
 }
 
-template <class T, class S> void FtlTable<T, S>::record_transaction(std::function<void(std::vector<T> &table)> f) {
+template <class T, class S>
+void FtlTable<T, S>::record_transaction(const std::function<void(std::vector<T> &table)> f) {
 	auto guard = WriteGuard(*this);
 	f(table);
 }

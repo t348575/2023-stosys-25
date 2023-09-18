@@ -34,7 +34,7 @@ set(CMAKE_INSTALL_PREFIX "/home/$ENV{USER}/local/")
 # Project configuration specific parameters
 set(STOSYS_M45 OFF)
 set(STOSYS_CMAKE_DEBUG OFF)
-set(STOSYS_ASAN ON)
+set(STOSYS_ASAN OFF)
 
 find_package(PkgConfig REQUIRED)
 if(NOT PKG_CONFIG_FOUND)
@@ -57,7 +57,7 @@ set(CMAKE_BUILD_TYPE Debug) # or debug if you need to use gdb on it.
 set(CMAKE_CXX_COMPILER g++) # or clang++
 #set(CMAKE_CXX_COMPILER clang++) # or clang++
 message("compiler is ${CMAKE_CXX_COMPILER_ID}   and name is ${CMAKE_CXX_COMPILER}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wl,--no-as-needed -Wall -Wextra -Wundef")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Wl,--no-as-needed -Wall -Wextra -Wundef")
 # optimization flags
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Ofast -ffast-math -funroll-loops -march=native") # get crazy here
 # debug flags, needs a bit of customization

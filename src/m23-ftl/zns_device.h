@@ -92,6 +92,7 @@ struct device_data {
 	int fd;
 	uint32_t nsid;
 	uint32_t mdts;
+	uint32_t zone_size;
 };
 
 extern FtlTable<std::vector<ftl_record>, ftl_record> log_table;
