@@ -38,6 +38,9 @@ FtlTable<ftl_record, int> data_table;
 FtlTable<ftl_record, int> log_info;
 FtlTable<ftl_record, int> data_info;
 
+std::vector<ftl_record> logs;
+uint32_t write_ptr;
+
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
 							   uint64_t buf_size) {
 	return nvme_read(fd, nsid, slba, numbers - 1, 0, NVME_IO_DSM_FREQ_UNSPEC, 0, 0, 0, buf_size, buffer, 0, nullptr);
@@ -144,10 +147,10 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 
 	*my_dev = (user_zns_device *)calloc(sizeof(user_zns_device), 1);
 	(**my_dev).lba_size_bytes = block_size;
-	(**my_dev).capacity_bytes = (zones.nr_zones - params->log_zones) * zns_ns.lbafe->zsze * 4096;
+	(**my_dev).capacity_bytes = (zones.nr_zones - params->log_zones) * zns_ns.lbafe->zsze * block_size;
 	(**my_dev).tparams = {
 			.zns_lba_size = block_size,
-			.zns_zone_capacity = (uint32_t)zns_ns.lbafe->zsze * 4096,
+			.zns_zone_capacity = (uint32_t)zns_ns.lbafe->zsze * block_size,
 			.zns_num_zones = (uint32_t)zones.nr_zones,
 	};
 	(**my_dev)._private = (device_data *)calloc(sizeof(device_data), 1);
@@ -157,24 +160,33 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->nsid = nsid;
 	dd->mdts = 262144;
 	dd->zone_size = zns_ns.lbafe->zsze;
-	for (uint64_t i = 0; i < (uint64_t)params->log_zones; i++) {
-		log_info.push_back({.l_address = i,
-							.p_address = i * (uint32_t)zns_ns.lbafe->zsze,
-							.write_ptr = 0,
-							.flag = status_flag::Invalid});
-		auto vec = std::vector<ftl_record>();
-		vec.reserve(zns_ns.lbafe->zsze);
-		log_table.push_back(vec);
-	}
 
-	uint64_t n_data_zones = zones.nr_zones - params->log_zones;
-	for (uint64_t i = 0; i < n_data_zones; i++) {
-		data_info.push_back({.l_address = i,
-							 .p_address = (i + params->log_zones) * (uint32_t)zns_ns.lbafe->zsze,
-							 .write_ptr = 0,
-							 .flag = status_flag::Invalid});
-		data_table.push_back({.l_address = 0, .p_address = 0, .write_ptr = 0, .flag = status_flag::Invalid});
+	nvme_zns_id_ctrl id_ctrl;
+	ret = nvme_zns_identify_ctrl(fd, &id_ctrl);
+	if (ret != 0) {
+		return ret;
 	}
+	dd->zasl = (1 << id_ctrl.zasl) * 4096;
+
+	logs.reserve(dd->zone_size * params->log_zones);
+	// for (uint64_t i = 0; i < (uint64_t)params->log_zones; i++) {
+	// 	log_info.push_back({.l_address = i,
+	// 						.p_address = i * (uint32_t)zns_ns.lbafe->zsze,
+	// 						.write_ptr = 0,
+	// 						.flag = status_flag::Invalid});
+	// 	auto vec = std::vector<ftl_record>();
+	// 	vec.reserve(zns_ns.lbafe->zsze);
+	// 	log_table.push_back(vec);
+	// }
+
+	// uint64_t n_data_zones = zones.nr_zones - params->log_zones;
+	// for (uint64_t i = 0; i < n_data_zones; i++) {
+	// 	data_info.push_back({.l_address = i,
+	// 						 .p_address = (i + params->log_zones) * (uint32_t)zns_ns.lbafe->zsze,
+	// 						 .write_ptr = 0,
+	// 						 .flag = status_flag::Invalid});
+	// 	data_table.push_back({.l_address = 0, .p_address = 0, .write_ptr = 0, .flag = status_flag::Invalid});
+	// }
 
 	return 0;
 }
@@ -194,170 +206,264 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 	struct device_data *dd = ((device_data *)my_dev->_private);
 
 	uint32_t size_c = size;
-	int ret = -1;
 	while (size_c > 0) {
-		ftl_record record;
-		auto base_l_address = closest_lower_multiple(my_dev->tparams.zns_zone_capacity, address);
-		int index = log_info.does_address_exist(base_l_address, &record);
-		uint32_t op_size = std::min(my_dev->tparams.zns_zone_capacity, size_c);
-		uint32_t offset = 0;
-		if (index != -1) {
-			ret = log_table.get_record(index, address, record, offset);
-			if (ret == -1) {
-				return ret;
-			}
-		} else if (data_table.does_address_exist(base_l_address, &record) != -1) {
-			offset = (address - base_l_address) / 4096;
-		}
+		for (uint i = 0; i < logs.size(); i++) {
+			if (logs[i].l_address == address + ((size - size_c) / my_dev->lba_size_bytes) && logs[i].flag == status_flag::Valid) {
+				uint upto = std::min((uint)logs.size(), size_c);
+				uint j = i;
+				for (; j < upto; j++) {
+					if (logs[j].l_address != address + size - size_c + j - i || logs[j].flag != status_flag::Valid) {
+						break;
+					}
+				}
 
-		ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, record.p_address + offset, (char *)buffer + size - size_c,
-										  op_size, my_dev->lba_size_bytes, dd->mdts, true);
-		if (ret != 0) {
-			return ret;
+				uint bytes_read = (j - i) * my_dev->lba_size_bytes;
+				int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, logs[i].p_address,
+													  (char *)buffer + (size - size_c), bytes_read,
+													  my_dev->lba_size_bytes, dd->mdts, true);
+				if (ret != 0) {
+					return ret;
+				}
+
+				size_c -= bytes_read;
+
+				break;
+			}
 		}
-		address += op_size;
-		size_c -= op_size;
 	}
-	return ret;
+	return 0;
+	// struct device_data *dd = ((device_data *)my_dev->_private);
+
+	// uint32_t size_c = size;
+	// int ret = -1;
+	// while (size_c > 0) {
+	// 	ftl_record record;
+	// 	auto base_l_address = closest_lower_multiple(my_dev->tparams.zns_zone_capacity, address);
+	// 	int index = log_info.does_address_exist(base_l_address, &record);
+	// 	uint32_t op_size = std::min(my_dev->tparams.zns_zone_capacity, size_c);
+	// 	uint32_t offset = 0;
+	// 	if (index != -1) {
+	// 		ret = log_table.get_record(index, address, record, offset);
+	// 		if (ret == -1) {
+	// 			return ret;
+	// 		}
+	// 	} else if (data_table.does_address_exist(base_l_address, &record) != -1) {
+	// 		offset = (address - base_l_address) / 4096;
+	// 	}
+
+	// 	ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, record.p_address + offset, (char *)buffer + size - size_c,
+	// 									  op_size, my_dev->lba_size_bytes, dd->mdts, true);
+	// 	if (ret != 0) {
+	// 		return ret;
+	// 	}
+	// 	address += op_size;
+	// 	size_c -= op_size;
+	// }
+	// return ret;
+}
+
+int ss_zns_device_zone_append(int fd, uint32_t nsid, uint64_t zslba, int numbers, void *buffer, uint32_t buf_size,
+							  uint64_t *written_slba) {
+	return nvme_zns_append(fd, nsid, zslba, numbers - 1, 0, 0, 0, 0, buf_size, buffer, 0, nullptr,
+						   (__u64 *)written_slba);
+}
+
+void mark_invalid_if_exists(const uint64_t address, const uint32_t size) {
+	uint32_t size_c = size;
+	// while (size_c > 0) {
+	for (uint i = 0; i < logs.size(); i++) {
+		if (logs[i].flag == status_flag::Invalid) {
+			continue;
+		}
+		if (logs[i].l_address == address + size - size_c && logs[i].flag == status_flag::Valid) {
+			uint upto = std::min((uint)logs.size(), size_c);
+			uint j = i;
+			for (; j < upto; j++) {
+				if (logs[j].l_address != address + size - size_c + j - i || logs[j].flag != status_flag::Valid) {
+					break;
+				}
+			}
+
+			for (uint k = i; k < j; k++) {
+				logs[k].flag = status_flag::Invalid;
+			}
+
+			size_c -= j - i;
+			break;
+		}
+	}
+	// }
 }
 
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
 	struct device_data *dd = ((device_data *)my_dev->_private);
-	uint64_t base_address = closest_lower_multiple(my_dev->tparams.zns_zone_capacity, address);
-
-	// if exists in data block
-	int data_table_idx = data_table.does_address_exist(base_address, nullptr);
-	if (data_table_idx != -1) {
-		ftl_record data_record = data_table.get(data_table_idx);
-		data_table.set_flag(data_table_idx, status_flag::Invalid);
-
-		log_table.record_transaction([&](std::vector<std::vector<ftl_record>> &table) {
-			table[data_table_idx].resize(dd->zone_size);
-			for (uint64_t i = 0; i < dd->zone_size; i++) {
-				table[data_table_idx][i] = {
-						.l_address = base_address + (i * my_dev->lba_size_bytes),
-						.p_address = data_record.p_address + i,
-						.write_ptr = 0,
-						.flag = status_flag::Valid,
-				};
-			}
-		});
-		log_info.set(data_table_idx, data_record);
-		return zns_udevice_write(my_dev, address, buffer, size);
-	}
-
-	// if log block does not exist for this address
-	int block_idx = log_info.does_address_exist(base_address, nullptr);
-	int p_address = 0;
-	int write_ptr = 0;
-	if (block_idx == -1) {
-		block_idx = log_info.get_unused_block();
-		if (block_idx == -1) {
-			std::cerr << "ERROR: log zone not found" << std::endl;
-			return -1;
-		}
-
-		auto zone_info = log_info.get(block_idx);
-		zone_info.l_address = base_address;
-		log_info.set(block_idx, zone_info);
-		int ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, zone_info.p_address);
-		if (ret == -1) {
-			return ret;
-		}
-		// TODO: handle creating a new log zone
-	}
-
-	auto zone_info = log_info.get(block_idx);
-	p_address = zone_info.p_address;
-	write_ptr = zone_info.write_ptr;
-
-	// if already exists in log table
-	char *buffer_to_use = (char *)buffer;
-	char *device_buffer = nullptr;
-	bool free_device_buffer = false;
-	if (log_table.has(address)) {
-		free_device_buffer = true;
-		uint64_t log_table_size = log_table.size_at(block_idx) * 4096;
-		uint64_t device_buf_size = std::max(log_table_size, (uint64_t)my_dev->tparams.zns_zone_capacity);
-		device_buffer = (char *)malloc(device_buf_size);
-		int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, p_address, device_buffer, log_table_size,
-											  my_dev->lba_size_bytes, dd->mdts, true);
-		if (ret != 0) {
-			free(device_buffer);
-			return ret;
-		}
-
-		ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, p_address);
-		if (ret != 0) {
-			free(device_buffer);
-			return ret;
-		}
-		log_info.reset_write_ptr(block_idx);
-		log_table.clear_index(block_idx);
-		write_ptr = 0;
-
-		memcpy((char *)device_buffer + (address - base_address), buffer, device_buf_size);
-		buffer_to_use = device_buffer;
-	}
-
-	// write to log table
 	uint32_t size_c = size;
 	while (size_c > 0) {
-		uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size),
-									(uint64_t)my_dev->tparams.zns_zone_capacity);
-
-		// uint insertion_pos = log_table.insertion_pos(block_idx, address);
-		// if (insertion_pos != log_table.size_at(block_idx)) {
-		// TODO: move current zone and rewrite
-		// }
-
-		int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, p_address + write_ptr,
-											  (char *)buffer_to_use + (size - size_c), op_size, my_dev->lba_size_bytes,
-											  dd->mdts, false);
-		if (ret != 0) {
-			if (device_buffer != nullptr && free_device_buffer) {
-				free(device_buffer);
+		if (write_ptr % dd->zone_size == 0) {
+			int ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, write_ptr);
+			if (ret != 0) {
+				return ret;
 			}
+		}
+
+		mark_invalid_if_exists(address, size / my_dev->lba_size_bytes);
+
+		const uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size_c), (uint64_t)dd->zasl);
+		const uint64_t num_operations = op_size / my_dev->lba_size_bytes;
+		uint64_t written_slba;
+		auto slba = closest_lower_multiple(dd->zone_size, write_ptr);
+		const int ret = ss_zns_device_zone_append(dd->fd, dd->nsid, slba, num_operations, (char *)buffer + (size - size_c),
+											op_size, &written_slba);
+		if (ret != 0) {
 			return ret;
 		}
 
-		uint64_t num_operations = op_size / my_dev->lba_size_bytes;
-		// if log block is full
-		if (dd->zone_size == log_table.table_index_size(block_idx) + num_operations) {
-			ret = convert_log_to_data(log_info.get(block_idx), block_idx, p_address);
-			if (ret != 0) {
-				if (device_buffer != nullptr && free_device_buffer) {
-					free(device_buffer);
-				}
-				return ret;
-			}
-
-			if (size_c - op_size != 0) {
-				if (free_device_buffer) {
-					free(device_buffer);
-				}
-				return zns_udevice_write(my_dev, my_dev->tparams.zns_zone_capacity,
-										 (char *)buffer + size - (size_c - op_size), size_c - op_size);
-			}
-			address += my_dev->tparams.zns_zone_capacity;
-			write_ptr = 0;
-		} else {
-			write_ptr = log_info.increment_write_ptr(block_idx, num_operations);
-			for (uint64_t i = 0; i < num_operations; i++) {
-				log_table.push_back(block_idx,
-									{.l_address = address + (i * my_dev->lba_size_bytes),
-									 .p_address = p_address + (size - size_c) + i,
-									 .write_ptr = 0,
-									 .flag = status_flag::Valid});
-			}
+		for (uint i = 0; i < num_operations; i++) {
+			logs.push_back({.l_address = address + i + ((size - size_c) / my_dev->lba_size_bytes),
+							.p_address = written_slba + i,
+							.write_ptr = 0,
+							.flag = status_flag::Valid});
 		}
-
+		write_ptr = written_slba + num_operations;
 		size_c -= op_size;
 	}
 
-	if (device_buffer != nullptr && free_device_buffer) {
-		free(device_buffer);
-	}
+	// struct device_data *dd = ((device_data *)my_dev->_private);
+	// uint64_t base_address = closest_lower_multiple(my_dev->tparams.zns_zone_capacity, address);
+
+	// // if exists in data block
+	// int data_table_idx = data_table.does_address_exist(base_address, nullptr);
+	// if (data_table_idx != -1) {
+	// 	ftl_record data_record = data_table.get(data_table_idx);
+	// 	data_table.set_flag(data_table_idx, status_flag::Invalid);
+
+	// 	log_table.record_transaction([&](std::vector<std::vector<ftl_record>> &table) {
+	// 		table[data_table_idx].resize(dd->zone_size);
+	// 		for (uint64_t i = 0; i < dd->zone_size; i++) {
+	// 			table[data_table_idx][i] = {
+	// 					.l_address = base_address + (i * my_dev->lba_size_bytes),
+	// 					.p_address = data_record.p_address + i,
+	// 					.write_ptr = 0,
+	// 					.flag = status_flag::Valid,
+	// 			};
+	// 		}
+	// 	});
+	// 	log_info.set(data_table_idx, data_record);
+	// 	return zns_udevice_write(my_dev, address, buffer, size);
+	// }
+
+	// // if log block does not exist for this address
+	// int block_idx = log_info.does_address_exist(base_address, nullptr);
+	// int p_address = 0;
+	// int write_ptr = 0;
+	// if (block_idx == -1) {
+	// 	block_idx = log_info.get_unused_block();
+	// 	if (block_idx == -1) {
+	// 		std::cerr << "ERROR: log zone not found" << std::endl;
+	// 		return -1;
+	// 	}
+
+	// 	auto zone_info = log_info.get(block_idx);
+	// 	zone_info.l_address = base_address;
+	// 	log_info.set(block_idx, zone_info);
+	// 	int ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, zone_info.p_address);
+	// 	if (ret == -1) {
+	// 		return ret;
+	// 	}
+	// 	// TODO: handle creating a new log zone
+	// }
+
+	// auto zone_info = log_info.get(block_idx);
+	// p_address = zone_info.p_address;
+	// write_ptr = zone_info.write_ptr;
+
+	// // if already exists in log table
+	// char *buffer_to_use = (char *)buffer;
+	// char *device_buffer = nullptr;
+	// bool free_device_buffer = false;
+	// if (log_table.has(address)) {
+	// 	free_device_buffer = true;
+	// 	uint64_t log_table_size = log_table.size_at(block_idx) * 4096;
+	// 	uint64_t device_buf_size = std::max(log_table_size, (uint64_t)my_dev->tparams.zns_zone_capacity);
+	// 	device_buffer = (char *)malloc(device_buf_size);
+	// 	int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, p_address, device_buffer, log_table_size,
+	// 										  my_dev->lba_size_bytes, dd->mdts, true);
+	// 	if (ret != 0) {
+	// 		free(device_buffer);
+	// 		return ret;
+	// 	}
+
+	// 	ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, p_address);
+	// 	if (ret != 0) {
+	// 		free(device_buffer);
+	// 		return ret;
+	// 	}
+	// 	log_info.reset_write_ptr(block_idx);
+	// 	log_table.clear_index(block_idx);
+	// 	write_ptr = 0;
+
+	// 	memcpy((char *)device_buffer + (address - base_address), buffer, device_buf_size);
+	// 	buffer_to_use = device_buffer;
+	// }
+
+	// // write to log table
+	// uint32_t size_c = size;
+	// while (size_c > 0) {
+	// 	uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size),
+	// 								(uint64_t)my_dev->tparams.zns_zone_capacity);
+
+	// 	// uint insertion_pos = log_table.insertion_pos(block_idx, address);
+	// 	// if (insertion_pos != log_table.size_at(block_idx)) {
+	// 	// TODO: move current zone and rewrite
+	// 	// }
+
+	// 	int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, p_address + write_ptr,
+	// 										  (char *)buffer_to_use + (size - size_c), op_size, my_dev->lba_size_bytes,
+	// 										  dd->mdts, false);
+	// 	if (ret != 0) {
+	// 		if (device_buffer != nullptr && free_device_buffer) {
+	// 			free(device_buffer);
+	// 		}
+	// 		return ret;
+	// 	}
+
+	// 	uint64_t num_operations = op_size / my_dev->lba_size_bytes;
+	// 	// if log block is full
+	// 	if (dd->zone_size == log_table.table_index_size(block_idx) + num_operations) {
+	// 		ret = convert_log_to_data(log_info.get(block_idx), block_idx, p_address);
+	// 		if (ret != 0) {
+	// 			if (device_buffer != nullptr && free_device_buffer) {
+	// 				free(device_buffer);
+	// 			}
+	// 			return ret;
+	// 		}
+
+	// 		if (size_c - op_size != 0) {
+	// 			if (free_device_buffer) {
+	// 				free(device_buffer);
+	// 			}
+	// 			return zns_udevice_write(my_dev, my_dev->tparams.zns_zone_capacity,
+	// 									 (char *)buffer + size - (size_c - op_size), size_c - op_size);
+	// 		}
+	// 		address += my_dev->tparams.zns_zone_capacity;
+	// 		write_ptr = 0;
+	// 	} else {
+	// 		write_ptr = log_info.increment_write_ptr(block_idx, num_operations);
+	// 		for (uint64_t i = 0; i < num_operations; i++) {
+	// 			log_table.push_back(block_idx,
+	// 								{.l_address = address + (i * my_dev->lba_size_bytes),
+	// 								 .p_address = p_address + (size - size_c) + i,
+	// 								 .write_ptr = 0,
+	// 								 .flag = status_flag::Valid});
+	// 		}
+	// 	}
+
+	// 	size_c -= op_size;
+	// }
+
+	// if (device_buffer != nullptr && free_device_buffer) {
+	// 	free(device_buffer);
+	// }
 
 	return 0;
 }

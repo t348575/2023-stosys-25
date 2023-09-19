@@ -93,12 +93,16 @@ struct device_data {
 	uint32_t nsid;
 	uint32_t mdts;
 	uint32_t zone_size;
+	uint32_t zasl;
 };
 
 extern FtlTable<std::vector<ftl_record>, ftl_record> log_table;
 extern FtlTable<ftl_record, int> log_info;
 extern FtlTable<ftl_record, int> data_table;
 extern FtlTable<ftl_record, int> data_info;
+
+extern std::vector<ftl_record> logs;
+extern uint32_t write_ptr;
 
 int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_dev);
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
