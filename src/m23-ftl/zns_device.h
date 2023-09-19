@@ -25,8 +25,8 @@ SOFTWARE.
 
 #include <cstdint>
 #include <iostream>
+#include <vector>
 
-#include "ftl.h"
 #include <libnvme.h>
 
 extern "C" {
@@ -96,10 +96,12 @@ struct device_data {
 	uint32_t zasl;
 };
 
-extern FtlTable<std::vector<ftl_record>, ftl_record> log_table;
-extern FtlTable<ftl_record, int> log_info;
-extern FtlTable<ftl_record, int> data_table;
-extern FtlTable<ftl_record, int> data_info;
+enum status_flag { Valid = 0, Invalid = 2 };
+
+struct ftl_record {
+	uint64_t l_address, p_address, write_ptr;
+	status_flag flag;
+};
 
 extern std::vector<ftl_record> logs;
 extern uint32_t write_ptr;
@@ -108,7 +110,6 @@ int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_de
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
-int convert_log_to_data(const ftl_record record, const int log_idx, int &p_address);
 };
 
 #endif // STOSYS_PROJECT_ZNS_DEVICE_H

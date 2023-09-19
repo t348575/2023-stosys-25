@@ -96,9 +96,6 @@ src/common/stosys_debug.h src/common/unused.h)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m1 ${NVME_LIBRARIES} pthread)
 
-add_library(ftl SHARED
-src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h)
-
 add_library(stosys SHARED 
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
@@ -123,11 +120,11 @@ install(TARGETS stosys
 # library is done. Now link it with all following milestones 2, 3, 4 and 5
 add_executable(m2 src/m23-ftl/m2.cpp)
 add_definitions (${NVME_CFLAGS})
-target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys ftl)
+target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys)
 
 add_executable(m3 src/m23-ftl/m3.cpp)
 add_definitions (${NVME_CFLAGS})
-target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys ftl)
+target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys)
 
 # starting here, we need more setup for RocksDB
 if(STOSYS_M45)
