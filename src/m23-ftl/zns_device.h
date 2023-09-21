@@ -29,7 +29,8 @@ SOFTWARE.
 
 #include <libnvme.h>
 
-extern "C" {
+#include "ftl.h"
+
 // https://github.com/mplulu/google-breakpad/issues/481 - taken from here
 #define typeof __typeof__
 #define container_of(ptr, type, member)                                                                                \
@@ -89,27 +90,27 @@ struct zdev_init_params {
 };
 
 struct device_data {
-	int fd;
-	uint32_t nsid;
-	uint32_t mdts;
-	uint32_t zone_size;
-	uint32_t zasl;
+	uint64_t fd;
+	uint64_t nsid;
+	uint64_t mdts;
+	uint64_t zone_size;
+	uint64_t log_zones;
+	uint64_t gc_wmark;
+	uint64_t t_handle;
 };
 
-enum status_flag { Valid = 0, Invalid = 2 };
-
-struct ftl_record {
-	uint64_t l_address, p_address, write_ptr;
-	status_flag flag;
-};
-
-extern std::vector<ftl_record> logs;
+extern std::vector<struct ftl_record> logs;
+extern class DataMap log_records;
 extern uint32_t write_ptr;
 
 int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_dev);
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
-};
+
+uint64_t closest_lower_multiple(uint64_t n, uint64_t x);
+uint64_t closest_upper_multiple(uint64_t n, uint64_t x);
+
+void gc_thread(const struct user_zns_device *my_dev);
 
 #endif // STOSYS_PROJECT_ZNS_DEVICE_H

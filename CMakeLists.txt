@@ -97,6 +97,7 @@ add_definitions (${NVME_CFLAGS})
 target_link_libraries(m1 ${NVME_LIBRARIES} pthread)
 
 add_library(stosys SHARED 
+src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
 

@@ -23,17 +23,19 @@ SOFTWARE.
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
 #include <functional>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 
 #include "../common/unused.h"
+#include "ftl.h"
 #include "zns_device.h"
 
-extern "C" {
-
 std::vector<ftl_record> logs;
+DataMap log_records;
 uint32_t write_ptr;
 
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
@@ -77,14 +79,58 @@ inline int ss_nvme_device_io_with_mdts(int fd, uint32_t nsid, uint64_t slba, voi
 	return ret;
 }
 
-uint64_t get_mdts_size(int fd) {
+char *nvme_char_from_block(const char *dev) {
+	char *path = NULL;
+	int ret, id;
+
+	ret = sscanf(dev, "nvme%dn", &id);
+	ret = asprintf(&path, "nvme%d", id);
+	if (ret < 0)
+		return NULL;
+	return path;
+}
+
+void *mmap_registers(const char *dev) {
+	int fd;
+	char *base, path[512];
+	void *membase;
+
+	base = nvme_char_from_block((char *)dev);
+	if (!base)
+		return NULL;
+
+	sprintf(path, "/sys/class/nvme/%s/device/resource0", base);
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		sprintf(path, "/sys/class/misc/%s/device/resource0", base);
+		fd = open(path, O_RDONLY);
+	}
+	if (fd < 0) {
+		fprintf(stderr, "%s did not find a pci resource, open failed %s\n", base, strerror(errno));
+		free(base);
+		return NULL;
+	}
+
+	membase = mmap(NULL, getpagesize(), PROT_READ, MAP_SHARED, fd, 0);
+	if (membase == MAP_FAILED) {
+		fprintf(stderr, "%s failed to map. ", base);
+		fprintf(stderr, "Did your kernel enable CONFIG_IO_STRICT_DEVMEM?\n");
+		membase = NULL;
+	}
+
+	free(base);
+	close(fd);
+	return membase;
+}
+
+uint64_t get_mdts_size(const int fd, const char *name) {
 	nvme_id_ctrl identify_ctrl;
 	int ret = nvme_identify_ctrl(fd, &identify_ctrl);
 	if (ret != 0) {
 		std::cerr << "ERROR: Could not get nvme idenitfy control: " << std::to_string(ret) << std::endl;
 	}
 
-	void *registers = mmap(NULL, getpagesize(), PROT_READ, MAP_SHARED, fd, 0);
+	void *registers = mmap_registers(name);
 	__u64 cap = le64_to_cpu((*(__le64 *)registers));
 	munmap(registers, getpagesize());
 
@@ -148,21 +194,22 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	struct device_data *dd = ((device_data *)(**my_dev)._private);
 	dd->fd = fd;
 	dd->nsid = nsid;
-	dd->mdts = 262144;
+	dd->mdts = get_mdts_size(dd->fd, params->name);
 	dd->zone_size = zns_ns.lbafe->zsze;
+	dd->gc_wmark = params->gc_wmark;
 
-	nvme_zns_id_ctrl id_ctrl;
-	ret = nvme_zns_identify_ctrl(fd, &id_ctrl);
-	if (ret != 0) {
-		return ret;
-	}
-	dd->zasl = (1 << id_ctrl.zasl) * 4096;
-	logs.reserve(dd->zone_size * params->log_zones);
+	// logs.reserve(dd->zone_size * params->log_zones);
+	log_records = DataMap(*my_dev, dd);
 
+	std::thread t(gc_thread, *my_dev);
+	dd->t_handle = t.native_handle();
+	t.detach();
 	return 0;
 }
 
-inline uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
+void gc_thread(const struct user_zns_device *my_dev) {}
+
+uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
 	if (x > n) {
 		return x;
 	}
@@ -171,7 +218,7 @@ inline uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
 	n = n - (n % x);
 	return n;
 }
-inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
+uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
 	struct device_data *dd = ((device_data *)my_dev->_private);
@@ -179,7 +226,8 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 	uint32_t size_c = size;
 	while (size_c > 0) {
 		for (uint i = 0; i < logs.size(); i++) {
-			if (logs[i].l_address == address + ((size - size_c) / my_dev->lba_size_bytes) && logs[i].flag == status_flag::Valid) {
+			if (logs[i].l_address == address + ((size - size_c) / my_dev->lba_size_bytes) &&
+				logs[i].flag == status_flag::Valid) {
 				uint upto = std::min((uint)logs.size(), size_c);
 				uint j = i;
 				for (; j < upto; j++) {
@@ -249,26 +297,23 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 
 		mark_invalid_if_exists(address, size / my_dev->lba_size_bytes);
 
-		const uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size_c), (uint64_t)dd->zasl);
+		const uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size_c), dd->mdts);
 		const uint64_t num_operations = op_size / my_dev->lba_size_bytes;
-		uint64_t written_slba;
 		auto slba = closest_lower_multiple(dd->zone_size, write_ptr);
-		const int ret = ss_zns_device_zone_append(dd->fd, dd->nsid, slba, num_operations, (char *)buffer + (size - size_c),
-											op_size, &written_slba);
+		const int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, slba, (char *)buffer + (size - size_c), op_size,
+													my_dev->lba_size_bytes, dd->mdts, false);
 		if (ret != 0) {
 			return ret;
 		}
 
 		for (uint i = 0; i < num_operations; i++) {
-			logs.push_back({.l_address = address + i + ((size - size_c) / my_dev->lba_size_bytes),
-							.p_address = written_slba + i,
-							.write_ptr = 0,
-							.flag = status_flag::Valid});
+			log_records.add_or_update({.l_address = address + i + ((size - size_c) / my_dev->lba_size_bytes),
+									   .p_address = write_ptr + i,
+									   .flag = status_flag::Valid});
 		}
-		write_ptr = written_slba + num_operations;
+		write_ptr += num_operations;
 		size_c -= op_size;
 	}
 
 	return 0;
-}
 }
