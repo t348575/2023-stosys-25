@@ -201,13 +201,20 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	// logs.reserve(dd->zone_size * params->log_zones);
 	log_records = DataMap(*my_dev, dd);
 
-	std::thread t(gc_thread, *my_dev);
-	dd->t_handle = t.native_handle();
-	t.detach();
+	std::thread t1(gc_thread1, *my_dev);
+	dd->t_handle1 = t1.native_handle();
+	t1.detach();
+
+	std::thread t2(gc_thread2, *my_dev);
+	dd->t_handle2 = t2.native_handle();
+	t2.detach();
+
 	return 0;
 }
 
-void gc_thread(const struct user_zns_device *my_dev) {}
+void gc_thread1(const struct user_zns_device *my_dev) {}
+
+void gc_thread2(const struct user_zns_device *my_dev) {}
 
 uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
 	if (x > n) {
@@ -288,14 +295,9 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 	struct device_data *dd = ((device_data *)my_dev->_private);
 	uint32_t size_c = size;
 	while (size_c > 0) {
-		if (write_ptr % dd->zone_size == 0) {
-			int ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, write_ptr);
-			if (ret != 0) {
-				return ret;
-			}
-		}
+		//check for any free zones and if not garbage collect
 
-		mark_invalid_if_exists(address, size / my_dev->lba_size_bytes);
+		if(log_records.check_for_free_zones)
 
 		const uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size_c), dd->mdts);
 		const uint64_t num_operations = op_size / my_dev->lba_size_bytes;

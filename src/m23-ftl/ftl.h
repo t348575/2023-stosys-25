@@ -61,6 +61,7 @@ public:
 
 	bool find(const uint64_t address, ftl_record &record);
 	void add_or_update(const ftl_record record);
+	bool check_for_free_zones(ftl_record &record)
 
 	std::vector<LogRecord> data;
 	const struct user_zns_device *device;
