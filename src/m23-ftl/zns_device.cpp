@@ -35,8 +35,7 @@ SOFTWARE.
 #include "zns_device.h"
 
 std::vector<ftl_record> logs;
-DataMap log_records;
-uint32_t write_ptr;
+DataMap records;
 
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
 							   uint64_t buf_size) {
@@ -140,6 +139,8 @@ uint64_t get_mdts_size(const int fd, const char *name) {
 }
 
 int deinit_ss_zns_device(struct user_zns_device *my_dev) {
+	pthread_cancel(records.dd->t_handle_loop);
+	pthread_cancel(records.dd->t_handle_immediate);
 	free(my_dev->_private);
 	free(my_dev);
 	return 0;
@@ -197,24 +198,87 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->mdts = get_mdts_size(dd->fd, params->name);
 	dd->zone_size = zns_ns.lbafe->zsze;
 	dd->gc_wmark = params->gc_wmark;
+	dd->log_zones = params->log_zones;
+	dd->n_zones = zones.nr_zones - params->log_zones;
 
 	// logs.reserve(dd->zone_size * params->log_zones);
-	log_records = DataMap(*my_dev, dd);
+	records = DataMap(*my_dev, dd);
 
-	std::thread t1(gc_thread1, *my_dev);
-	dd->t_handle1 = t1.native_handle();
+	std::thread t1(gc_loop);
+	dd->t_handle_loop = t1.native_handle();
 	t1.detach();
 
-	std::thread t2(gc_thread2, *my_dev);
-	dd->t_handle2 = t2.native_handle();
+	std::thread t2(gc_immediate);
+	dd->t_handle_immediate = t2.native_handle();
 	t2.detach();
 
 	return 0;
 }
 
-void gc_thread1(const struct user_zns_device *my_dev) {}
+void gc_loop() {
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 
-void gc_thread2(const struct user_zns_device *my_dev) {}
+		for (auto &t : records.log_zones) {
+			const auto sums = t.count_base_addresses();
+			if (sums.size() == 0) {
+				continue;
+			}
+
+			auto guard_log = WriteGuard(t);
+			const auto zone_size = records.device->tparams.zns_zone_capacity;
+			char *log_zone = new char[zone_size];
+			int ret = ss_nvme_device_io_with_mdts(
+					records.dd->fd, records.dd->nsid, closest_lower_multiple(records.dd->zone_size, sums[0].p_address),
+					log_zone, zone_size, records.device->lba_size_bytes, records.dd->mdts, true);
+			if (ret != 0) {
+				std::cerr << "ERROR: could not read log zone in gc_loop" << std::endl;
+				continue;
+			}
+
+			auto removed = t.remove_base_address(sums[0].base_address);
+			char *data_zone = new char[zone_size];
+			ftl_record data_zone_record;
+			bool should_reset_zone;
+			uint64_t data_zone_idx;
+			if (!records.get_data_zone(sums[0].base_address, data_zone_record, should_reset_zone, data_zone_idx)) {
+				std::cerr << "ERROR: no free data zones found" << std::endl;
+				continue;
+			}
+			auto guard_data = WriteGuard(records.data_zones[data_zone_idx]);
+
+			if (should_reset_zone) {
+				ret = ss_zns_device_zone_reset(records.dd->fd, records.dd->nsid, data_zone_record.p_address);
+				if (ret != 0) {
+					std::cerr << "ERROR: could not reset data zone" << std::endl;
+					continue;
+				}
+			}
+
+			ret = ss_nvme_device_io_with_mdts(records.dd->fd, records.dd->nsid, data_zone_record.p_address, data_zone,
+											  zone_size, records.device->lba_size_bytes, records.dd->mdts, true);
+			if (ret != 0) {
+				std::cerr << "ERROR: could not read data zone in gc_loop" << std::endl;
+				continue;
+			}
+
+			const auto sub_by = closest_lower_multiple(records.dd->zone_size, removed[0].p_address);
+			for (const auto &r : removed) {
+				memcpy(data_zone + (r.l_address - r.base_address), log_zone + (r.p_address - sub_by),
+					   records.device->lba_size_bytes);
+			}
+
+			ret = ss_nvme_device_io_with_mdts(records.dd->fd, records.dd->nsid, data_zone_record.p_address, data_zone,
+											  zone_size, records.device->lba_size_bytes, records.dd->mdts, false);
+			if (ret != 0) {
+				std::cerr << "ERROR: could not write to data zone in gc_loop" << std::endl;
+				continue;
+			}
+		}
+	}
+}
+
+void gc_immediate() {}
 
 uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
 	if (x > n) {
@@ -295,25 +359,42 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 	struct device_data *dd = ((device_data *)my_dev->_private);
 	uint32_t size_c = size;
 	while (size_c > 0) {
-		//check for any free zones and if not garbage collect
+		int free_log_zone;
+		uint64_t zone_size = records.get_free_log_zone(free_log_zone);
+		if (free_log_zone == -1) {
+			// TODO: invoke GC
+		}
 
-		if(log_records.check_for_free_zones)
+		const uint64_t slba = records.get_log_p_address(free_log_zone);
+		if (zone_size == 0) {
+			int ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, slba);
+			if (ret != 0) {
+				return ret;
+			}
+		}
+
+		// TODO: if record already exists in table, delete it
 
 		const uint64_t op_size = std::min(closest_upper_multiple(my_dev->lba_size_bytes, size_c), dd->mdts);
 		const uint64_t num_operations = op_size / my_dev->lba_size_bytes;
-		auto slba = closest_lower_multiple(dd->zone_size, write_ptr);
-		const int ret = ss_nvme_device_io_with_mdts(dd->fd, dd->nsid, slba, (char *)buffer + (size - size_c), op_size,
-													my_dev->lba_size_bytes, dd->mdts, false);
+		uint64_t written_slba;
+		const int ret = ss_zns_device_zone_append(dd->fd, dd->nsid, slba, num_operations,
+												  (char *)buffer + (size - size_c), op_size, &written_slba);
 		if (ret != 0) {
 			return ret;
 		}
 
 		for (uint i = 0; i < num_operations; i++) {
-			log_records.add_or_update({.l_address = address + i + ((size - size_c) / my_dev->lba_size_bytes),
-									   .p_address = write_ptr + i,
-									   .flag = status_flag::Valid});
+			uint64_t l_address = address + i + ((size - size_c) / my_dev->lba_size_bytes);
+			records.add_or_update(free_log_zone,
+								  {
+										  .l_address = l_address,
+										  .p_address = written_slba,
+										  .base_address = closest_lower_multiple(
+												  records.device->tparams.zns_zone_capacity, l_address),
+										  .flag = status_flag::Valid,
+								  });
 		}
-		write_ptr += num_operations;
 		size_c -= op_size;
 	}
 

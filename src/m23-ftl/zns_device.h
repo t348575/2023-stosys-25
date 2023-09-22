@@ -95,13 +95,14 @@ struct device_data {
 	uint64_t mdts;
 	uint64_t zone_size;
 	uint64_t log_zones;
+	uint64_t n_zones;
 	uint64_t gc_wmark;
-	uint64_t t_handle;
+	uint64_t t_handle_loop;
+	uint64_t t_handle_immediate;
 };
 
 extern std::vector<struct ftl_record> logs;
-extern class DataMap log_records;
-extern uint32_t write_ptr;
+extern class DataMap records;
 
 int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_dev);
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
@@ -111,6 +112,7 @@ int deinit_ss_zns_device(struct user_zns_device *my_dev);
 uint64_t closest_lower_multiple(uint64_t n, uint64_t x);
 uint64_t closest_upper_multiple(uint64_t n, uint64_t x);
 
-void gc_thread(const struct user_zns_device *my_dev);
+void gc_loop();
+void gc_immediate();
 
 #endif // STOSYS_PROJECT_ZNS_DEVICE_H
