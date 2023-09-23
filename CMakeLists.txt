@@ -34,7 +34,7 @@ set(CMAKE_INSTALL_PREFIX "/home/$ENV{USER}/local/")
 # Project configuration specific parameters
 set(STOSYS_M45 OFF)
 set(STOSYS_CMAKE_DEBUG OFF)
-set(STOSYS_ASAN OFF)
+set(STOSYS_ASAN ON)
 
 find_package(PkgConfig REQUIRED)
 if(NOT PKG_CONFIG_FOUND)

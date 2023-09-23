@@ -8,6 +8,7 @@
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <condition_variable>
 
 #include "../common/unused.h"
 #include "zns_device.h"
@@ -54,6 +55,7 @@ public:
 	bool get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
 	void delete_if_exists(const uint64_t address);
+	uint64_t get_num_free_log_zones();
 	uint64_t get_log_p_address(uint64_t idx);
 
 	std::vector<LogRecord> log_zones;
@@ -62,6 +64,11 @@ public:
 	const struct device_data *dd;
 	std::mutex mtx;
 	std::atomic<bool> in_action;
+	std::mutex force_gc_mtx;
+	bool ready_to_force_gc = false;
+	std::condition_variable force_gc;
+	bool should_run_gc = true;
+	bool gc_exited = false;
 };
 
 #endif

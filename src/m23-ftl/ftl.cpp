@@ -142,3 +142,14 @@ void DataMap::delete_if_exists(const uint64_t address) {
 		}
 	}
 }
+
+uint64_t DataMap::get_num_free_log_zones() {
+	uint64_t num_free_zones = 0;
+	for (uint i = 0; i < records.log_zones.size(); i++) {
+		if (records.log_zones[i].zone_size != records.dd->zone_size) {
+			num_free_zones++;
+		}
+	}
+
+	return num_free_zones;
+}
