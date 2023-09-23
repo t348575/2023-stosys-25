@@ -94,6 +94,7 @@ struct device_data {
 	uint64_t nsid;
 	uint64_t mdts;
 	uint64_t zone_size;
+	uint64_t zasl;
 	uint64_t log_zones;
 	uint64_t n_zones;
 	uint64_t gc_wmark;
