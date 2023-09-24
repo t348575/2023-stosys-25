@@ -210,7 +210,6 @@ static int show_help(){
 }
 
 int main(int argc, char **argv) {
-    VisualProfiler::Instance().beginSession("instrument");
     uint64_t start, end;
     start = microseconds_since_epoch();
     srand( (unsigned) time(NULL) * getpid());

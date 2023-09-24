@@ -6,9 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
-#include <atomic>
 #include <vector>
-#include <condition_variable>
 
 #include "../common/unused.h"
 #include "zns_device.h"
@@ -26,17 +24,14 @@ struct count_base_address_sums {
 
 class LogRecord {
 public:
-	LogRecord(const uint64_t p_address, const uint64_t zone_size, const struct device_data *dd)
-		: p_address(p_address), dd(dd) {
+	LogRecord(const uint64_t p_address, const uint64_t zone_size) : p_address(p_address), write_ptr(p_address) {
 		logs.reserve(zone_size);
 	};
-	uint64_t get_p_address() { return p_address; }
 	std::vector<struct count_base_address_sums> count_base_addresses();
 	std::vector<ftl_record> remove_base_address(const uint64_t base_address);
 
-	uint64_t p_address, zone_size = 0;
+	uint64_t p_address, zone_size = 0, write_ptr;
 	std::vector<ftl_record> logs;
-	const struct device_data *dd;
 };
 
 class DataRecord {
@@ -49,24 +44,21 @@ public:
 class DataMap {
 public:
 	void init(const struct user_zns_device *_device, const struct device_data *_dd);
-	bool find(const uint64_t address, ftl_record &record);
+	bool find_in_log(const uint64_t address, ftl_record &record);
+	bool find_in_data(const uint64_t address, ftl_record &record);
 	void add_or_update(const uint64_t idx, const ftl_record record);
 	uint64_t get_free_log_zone(int &index);
 	bool get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx);
+	bool remove_unused_data_zone(const uint64_t base_address, ftl_record &record);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
-	void delete_if_exists(const uint64_t address);
+	void delete_from_log_if_exists(const uint64_t address);
 	uint64_t get_num_free_log_zones();
-	uint64_t get_log_p_address(uint64_t idx);
 
 	std::vector<LogRecord> log_zones;
 	std::vector<DataRecord> data_zones;
 	const struct user_zns_device *device;
 	const struct device_data *dd;
 	std::mutex mtx;
-	std::atomic<bool> in_action;
-	std::mutex force_gc_mtx;
-	bool ready_to_force_gc = false;
-	std::condition_variable force_gc;
 	bool should_run_gc = true;
 	bool gc_exited = false;
 };
