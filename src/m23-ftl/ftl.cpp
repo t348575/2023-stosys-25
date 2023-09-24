@@ -35,6 +35,7 @@ uint64_t DataMap::get_free_log_zone(int &index) {
 			return log_zones[i].zone_size;
 		}
 	}
+	index = -1;
 	return 0;
 }
 
