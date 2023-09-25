@@ -3,10 +3,10 @@
 #ifndef FTL_H
 #define FTL_H
 
-#include <shared_mutex>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 #include "../common/unused.h"
@@ -44,6 +44,13 @@ public:
 
 class DataMap {
 public:
+	static DataMap *GetInstance() {
+		if (records == nullptr) {
+			records = new DataMap();
+		}
+		return records;
+	}
+
 	void init(const struct user_zns_device *_device, const struct device_data *_dd);
 	bool find_in_log(const uint64_t address, ftl_record &record);
 	bool find_in_data(const uint64_t address, ftl_record &record);
@@ -64,6 +71,7 @@ public:
 	std::atomic<uint64_t> write_counter;
 	bool should_run_gc = true;
 	bool gc_exited = false;
+	static DataMap *records;
 };
 
 #endif

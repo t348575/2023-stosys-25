@@ -24,19 +24,17 @@ SOFTWARE.
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <functional>
+#include <iostream>
+#include <set>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
-#include <set>
 
 #include "../common/unused.h"
 #include "ftl.h"
 #include "visual_profiler.h"
 #include "zns_device.h"
-
-DataMap records;
 
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
 							   uint64_t buf_size) {
@@ -51,7 +49,8 @@ inline int ss_nvme_device_write(int fd, uint32_t nsid, uint64_t slba, uint16_t n
 
 inline int ss_zns_device_zone_reset(uint64_t slba) {
 	PROFILE_FUNCTION();
-	return nvme_zns_mgmt_send(records.dd->fd, records.dd->nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
+	auto const records = DataMap::GetInstance();
+	return nvme_zns_mgmt_send(records->dd->fd, records->dd->nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
 }
 
 typedef int (*nvme_op)(int, uint32_t, uint64_t, uint16_t, void *, uint64_t);
@@ -68,10 +67,11 @@ inline int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf
 		op = ss_nvme_device_write;
 	}
 
+	auto const records = DataMap::GetInstance();
 	while (size > 0) {
-		uint64_t op_size = std::min(records.dd->mdts, size);
-		numbers = op_size / records.device->lba_size_bytes;
-		ret = op(records.dd->fd, records.dd->nsid, slba, numbers, (char *)buffer + (buf_size - size), op_size);
+		uint64_t op_size = std::min(DataMap::GetInstance()->dd->mdts, size);
+		numbers = op_size / records->device->lba_size_bytes;
+		ret = op(records->dd->fd, records->dd->nsid, slba, numbers, (char *)buffer + (buf_size - size), op_size);
 		if (ret != 0) {
 			return ret;
 		}
@@ -79,12 +79,6 @@ inline int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf
 		size -= op_size;
 	}
 	return ret;
-}
-
-int ss_zns_device_zone_append(int fd, uint32_t nsid, uint64_t zslba, int numbers, void *buffer, uint32_t buf_size,
-							  uint64_t *written_slba) {
-	return nvme_zns_append(fd, nsid, zslba, numbers - 1, 0, 0, 0, 0, buf_size, buffer, 0, nullptr,
-						   (__u64 *)written_slba);
 }
 
 char *nvme_char_from_block(const char *dev) {
@@ -148,10 +142,9 @@ uint64_t get_mdts_size(const int fd, const char *name) {
 }
 
 int deinit_ss_zns_device(struct user_zns_device *my_dev) {
-	records.should_run_gc = false;
-	// records.ready_to_force_gc = true;
-	// records.force_gc.notify_one();
-	while (!records.gc_exited) {
+	auto const records = DataMap::GetInstance();
+	records->should_run_gc = false;
+	while (!records->gc_exited) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
@@ -216,7 +209,7 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->log_zones = params->log_zones;
 	dd->n_zones = zones.nr_zones - params->log_zones;
 
-	records.init(*my_dev, dd);
+	DataMap::GetInstance()->init(*my_dev, dd);
 
 	std::thread t1(gc_loop);
 	t1.detach();
@@ -226,33 +219,34 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 
 void try_logical_conversion() {
 	PROFILE_FUNCTION();
-	for (uint64_t j = 0; j < records.log_zones.size(); j++) {
-		if (records.log_zones[j].logs.size() != records.dd->zone_size) {
+	auto const records = DataMap::GetInstance();
+	for (uint64_t j = 0; j < records->log_zones.size(); j++) {
+		if (records->log_zones[j].logs.size() != records->dd->zone_size) {
 			continue;
 		}
 
-		auto const start_record = records.log_zones[j].logs[0];
-		auto prev_record = records.log_zones[j].logs[0];
+		auto const start_record = records->log_zones[j].logs[0];
+		auto prev_record = records->log_zones[j].logs[0];
 		bool can_logically_make_data = true;
-		for (uint64_t i = 1; i < records.log_zones[j].logs.size(); i++) {
-			if (records.log_zones[j].logs[i].base_address != start_record.base_address ||
-				prev_record.l_address + records.device->lba_size_bytes != records.log_zones[j].logs[i].l_address) {
+		for (uint64_t i = 1; i < records->log_zones[j].logs.size(); i++) {
+			if (records->log_zones[j].logs[i].base_address != start_record.base_address ||
+				prev_record.l_address + records->device->lba_size_bytes != records->log_zones[j].logs[i].l_address) {
 				can_logically_make_data = false;
 				break;
 			}
-			prev_record = records.log_zones[j].logs[i];
+			prev_record = records->log_zones[j].logs[i];
 		}
 
 		if (can_logically_make_data) {
 			ftl_record data_zone;
-			if (!records.remove_unused_data_zone(start_record.base_address, data_zone)) {
+			if (!records->remove_unused_data_zone(start_record.base_address, data_zone)) {
 				std::cerr << "ERROR: could not find a data zone to convert" << std::endl;
 				return;
 			}
 
-			records.log_zones.erase(records.log_zones.begin() + j);
-			records.data_zones.push_back(DataRecord(start_record));
-			records.log_zones.push_back(LogRecord(data_zone.p_address, records.dd->zone_size));
+			records->log_zones.erase(records->log_zones.begin() + j);
+			records->data_zones.push_back(DataRecord(start_record));
+			records->log_zones.push_back(LogRecord(data_zone.p_address, records->dd->zone_size));
 			int ret = ss_zns_device_zone_reset(data_zone.p_address);
 			if (ret != 0) {
 				std::cerr << "ERROR: could not reset log zone in logical conversion" << std::endl;
@@ -265,8 +259,9 @@ void try_logical_conversion() {
 
 void reclaim_empty_log_zones() {
 	PROFILE_FUNCTION();
-	for (auto &t : records.log_zones) {
-		if (t.zone_size == records.dd->zone_size && t.logs.size() == 0) {
+	auto const records = DataMap::GetInstance();
+	for (auto &t : records->log_zones) {
+		if (t.zone_size == records->dd->zone_size && t.logs.size() == 0) {
 			int ret = ss_zns_device_zone_reset(t.p_address);
 			if (ret != 0) {
 				std::cerr << "ERROR: could not reset log zone" << std::endl;
@@ -280,62 +275,67 @@ void reclaim_empty_log_zones() {
 
 uint64_t full_merge() {
 	PROFILE_FUNCTION();
-	const auto count = records.count_base_addresses();
+	auto const records = DataMap::GetInstance();
+	const auto count = records->count_base_addresses();
 	if (count.size() == 0) {
 		return 0;
 	}
 
 	std::vector<ftl_record> base_address_items;
 	std::set<uint64_t> distinct_p_addresses;
-	base_address_items.reserve(records.dd->log_zones * records.dd->zone_size);
-	for (auto &t : records.log_zones) {
+	base_address_items.reserve(records->dd->log_zones * records->dd->zone_size);
+	for (auto &t : records->log_zones) {
 		const auto removed = t.remove_base_address(count[0].base_address);
 		base_address_items.insert(base_address_items.end(), removed.begin(), removed.end());
 	}
 
-	for(const auto &t: base_address_items) {
-		distinct_p_addresses.insert(closest_lower_multiple(records.dd->zone_size, t.p_address));
+	for (const auto &t : base_address_items) {
+		distinct_p_addresses.insert(closest_lower_multiple(records->dd->zone_size, t.p_address));
 	}
 
 	std::vector<char> log_zone, temp_buffer;
-	log_zone.resize(records.device->tparams.zns_zone_capacity);
-	temp_buffer.resize(records.device->tparams.zns_zone_capacity);
-	for (const auto &p_address: distinct_p_addresses) {
-		const auto base_p_address = closest_lower_multiple(records.dd->zone_size, p_address);
-		int ret = ss_nvme_device_io_with_mdts(base_p_address, (void *)&temp_buffer[0], records.device->tparams.zns_zone_capacity, true);
+	log_zone.resize(records->device->tparams.zns_zone_capacity);
+	temp_buffer.resize(records->device->tparams.zns_zone_capacity);
+	for (const auto &p_address : distinct_p_addresses) {
+		const auto base_p_address = closest_lower_multiple(records->dd->zone_size, p_address);
+		int ret = ss_nvme_device_io_with_mdts(base_p_address, (void *)&temp_buffer[0],
+											  records->device->tparams.zns_zone_capacity, true);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not read log zone for merge" << std::endl;
 		}
 
-		for (const auto &item: base_address_items) {
-			if (closest_lower_multiple(records.dd->zone_size, item.p_address) == p_address) {
-				memcpy((void *)&log_zone[item.l_address - count[0].base_address], (void *)&temp_buffer[(item.p_address - base_p_address) * records.device->lba_size_bytes], records.device->lba_size_bytes);
+		for (const auto &item : base_address_items) {
+			if (closest_lower_multiple(records->dd->zone_size, item.p_address) == p_address) {
+				memcpy((void *)&log_zone[item.l_address - count[0].base_address],
+					   (void *)&temp_buffer[(item.p_address - base_p_address) * records->device->lba_size_bytes],
+					   records->device->lba_size_bytes);
 			}
 		}
 	}
 
 	ftl_record data_zone_record;
 	uint64_t data_zone_idx;
-	if (!records.get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
+	if (!records->get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
 		std::cerr << "ERROR: could not find data zone for " << std::to_string(count[0].base_address) << std::endl;
 	}
 
 	std::vector<char> data_zone;
-	data_zone.resize(records.device->tparams.zns_zone_capacity);
+	data_zone.resize(records->device->tparams.zns_zone_capacity);
 	int ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
-										records.device->tparams.zns_zone_capacity, true);
+										  records->device->tparams.zns_zone_capacity, true);
 	if (ret != 0) {
 		std::cerr << "ERROR: could not read data zone for merge" << std::endl;
 	}
 
-	records.set_data_zone(data_zone_idx,
-					{.l_address = 0,
-					.p_address = data_zone_record.p_address,
-					.base_address = count[0].base_address,
-					.flag = status_flag::Valid});
+	records->set_data_zone(data_zone_idx,
+						   {.l_address = 0,
+							.p_address = data_zone_record.p_address,
+							.base_address = count[0].base_address,
+							.flag = status_flag::Valid});
 
-	for (const auto &item: base_address_items) {
-		memcpy((void *)&data_zone[item.l_address - count[0].base_address], (void *)&log_zone[item.l_address - count[0].base_address], records.device->lba_size_bytes);
+	for (const auto &item : base_address_items) {
+		memcpy((void *)&data_zone[item.l_address - count[0].base_address],
+			   (void *)&log_zone[item.l_address - count[0].base_address], records->device->lba_size_bytes);
 	}
 
 	ret = ss_zns_device_zone_reset(data_zone_record.p_address);
@@ -343,7 +343,8 @@ uint64_t full_merge() {
 		std::cerr << "ERROR: could not reset data zone for merge" << std::endl;
 	}
 
-	ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void*)&data_zone[0], records.device->tparams.zns_zone_capacity, false);
+	ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
+									  records->device->tparams.zns_zone_capacity, false);
 	if (ret != 0) {
 		std::cerr << "ERROR: could not write data zone for merge" << std::endl;
 	}
@@ -351,11 +352,12 @@ uint64_t full_merge() {
 	return count[0].count;
 }
 
-uint64_t merge(bool force_merge) {
+uint64_t merge() {
 	PROFILE_FUNCTION();
+	auto const records = DataMap::GetInstance();
 	uint64_t total_merged = 0;
-	for (auto &t : records.log_zones) {
-		if (!force_merge && t.logs.size() < records.dd->start_merge_threshold) {
+	for (auto &t : records->log_zones) {
+		if (t.logs.size() < records->dd->start_merge_threshold) {
 			continue;
 		}
 
@@ -364,41 +366,41 @@ uint64_t merge(bool force_merge) {
 			continue;
 		}
 
-		const auto base_p_address = closest_lower_multiple(records.dd->zone_size, count[0].p_address);
+		const auto base_p_address = closest_lower_multiple(records->dd->zone_size, count[0].p_address);
 		std::vector<char> log_zone;
-		log_zone.resize(records.device->tparams.zns_zone_capacity);
+		log_zone.resize(records->device->tparams.zns_zone_capacity);
 		int ret = ss_nvme_device_io_with_mdts(base_p_address, (void *)&log_zone[0],
-											  records.device->tparams.zns_zone_capacity, true);
+											  records->device->tparams.zns_zone_capacity, true);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not read log zone for merge" << std::endl;
 		}
 
 		ftl_record data_zone_record;
 		uint64_t data_zone_idx;
-		if (!records.get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
+		if (!records->get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
 			std::cerr << "ERROR: could not find data zone for " << std::to_string(count[0].base_address) << std::endl;
 		}
 
 		std::vector<char> data_zone;
-		data_zone.resize(records.device->tparams.zns_zone_capacity);
+		data_zone.resize(records->device->tparams.zns_zone_capacity);
 		ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
-										  records.device->tparams.zns_zone_capacity, true);
+										  records->device->tparams.zns_zone_capacity, true);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not read data zone for merge" << std::endl;
 		}
 
-		records.set_data_zone(data_zone_idx,
-							{.l_address = 0,
-							.p_address = data_zone_record.p_address,
-							.base_address = count[0].base_address,
-							.flag = status_flag::Valid});
+		records->set_data_zone(data_zone_idx,
+							   {.l_address = 0,
+								.p_address = data_zone_record.p_address,
+								.base_address = count[0].base_address,
+								.flag = status_flag::Valid});
 
 		const auto removed = t.remove_base_address(count[0].base_address);
-		const auto sub_by = closest_lower_multiple(records.dd->zone_size, removed[0].p_address);
-		for (const auto &r: removed) {
+		const auto sub_by = closest_lower_multiple(records->dd->zone_size, removed[0].p_address);
+		for (const auto &r : removed) {
 			memcpy((void *)&data_zone[r.l_address - count[0].base_address],
-				   (void *)&log_zone[(r.p_address - sub_by) * records.device->lba_size_bytes],
-				   records.device->lba_size_bytes);
+				   (void *)&log_zone[(r.p_address - sub_by) * records->device->lba_size_bytes],
+				   records->device->lba_size_bytes);
 		}
 
 		ret = ss_zns_device_zone_reset(data_zone_record.p_address);
@@ -406,7 +408,8 @@ uint64_t merge(bool force_merge) {
 			std::cerr << "ERROR: could not reset data zone for merge" << std::endl;
 		}
 
-		ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void*)&data_zone[0], records.device->tparams.zns_zone_capacity, false);
+		ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
+										  records->device->tparams.zns_zone_capacity, false);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not write data zone for merge" << std::endl;
 		}
@@ -418,17 +421,19 @@ uint64_t merge(bool force_merge) {
 
 uint64_t merge_log_zones() {
 	PROFILE_FUNCTION();
+	auto const records = DataMap::GetInstance();
 	uint64_t idx[2];
 	uint64_t sum_size = 0;
 	bool found = false;
-	for (uint64_t i = 0; i < records.log_zones.size() - 1; i++) {
-		for (uint64_t j = i + 1; j < records.log_zones.size(); j++) {
-			if (records.log_zones[i].logs.size() > 0 && records.log_zones[j].logs.size() > 0 && records.log_zones[i].logs.size() + records.log_zones[j].logs.size() <= records.dd->zone_size) {
-				if (records.log_zones[i].logs.size() + records.log_zones[j].logs.size() > sum_size) {
+	for (uint64_t i = 0; i < records->log_zones.size() - 1; i++) {
+		for (uint64_t j = i + 1; j < records->log_zones.size(); j++) {
+			if (records->log_zones[i].logs.size() > 0 && records->log_zones[j].logs.size() > 0 &&
+				records->log_zones[i].logs.size() + records->log_zones[j].logs.size() <= records->dd->zone_size) {
+				if (records->log_zones[i].logs.size() + records->log_zones[j].logs.size() > sum_size) {
 					found = true;
 					idx[0] = i;
 					idx[1] = j;
-					sum_size = records.log_zones[i].logs.size() + records.log_zones[j].logs.size();
+					sum_size = records->log_zones[i].logs.size() + records->log_zones[j].logs.size();
 				}
 			}
 		}
@@ -439,115 +444,113 @@ uint64_t merge_log_zones() {
 	}
 
 	std::vector<char> old_log_zone, new_log_zone;
-	old_log_zone.resize(records.device->tparams.zns_zone_capacity);
-	new_log_zone.reserve(records.device->tparams.zns_zone_capacity);
-	auto base_p_address = records.log_zones[idx[0]].p_address;
+	old_log_zone.resize(records->device->tparams.zns_zone_capacity);
+	new_log_zone.reserve(records->device->tparams.zns_zone_capacity);
+	auto base_p_address = records->log_zones[idx[0]].p_address;
 	for (uint i = 0; i < 2; i++) {
-		int ret = ss_nvme_device_io_with_mdts(records.log_zones[idx[i]].p_address, (void *)&old_log_zone[0],
-											records.device->tparams.zns_zone_capacity, true);
+		int ret = ss_nvme_device_io_with_mdts(records->log_zones[idx[i]].p_address, (void *)&old_log_zone[0],
+											  records->device->tparams.zns_zone_capacity, true);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not read log zone for merge" << std::endl;
 		}
 
-		for (const auto &t: records.log_zones[idx[i]].logs) {
-			const auto from = ((t.p_address - records.log_zones[idx[i]].p_address) * records.device->lba_size_bytes);
-			new_log_zone.insert(new_log_zone.end(), old_log_zone.begin() + from, old_log_zone.begin() + from + records.device->lba_size_bytes);
+		for (const auto &t : records->log_zones[idx[i]].logs) {
+			const auto from = ((t.p_address - records->log_zones[idx[i]].p_address) * records->device->lba_size_bytes);
+			new_log_zone.insert(new_log_zone.end(), old_log_zone.begin() + from,
+								old_log_zone.begin() + from + records->device->lba_size_bytes);
 		}
 
-		ret = ss_zns_device_zone_reset(records.log_zones[idx[i]].p_address);
+		ret = ss_zns_device_zone_reset(records->log_zones[idx[i]].p_address);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not reset log zone in logical conversion" << std::endl;
 		}
 
 		if (i == 1) {
-			records.log_zones[idx[i]].write_ptr = records.log_zones[idx[i]].p_address;
-			records.log_zones[idx[i]].zone_size = 0;
+			records->log_zones[idx[i]].write_ptr = records->log_zones[idx[i]].p_address;
+			records->log_zones[idx[i]].zone_size = 0;
 		}
 
-		for (uint64_t j = 0; j < records.log_zones[idx[i]].logs.size(); j++) {
-			records.log_zones[idx[i]].logs[j].p_address = base_p_address + j;
+		for (uint64_t j = 0; j < records->log_zones[idx[i]].logs.size(); j++) {
+			records->log_zones[idx[i]].logs[j].p_address = base_p_address + j;
 		}
-		base_p_address += records.log_zones[idx[i]].logs.size();
+		base_p_address += records->log_zones[idx[i]].logs.size();
 	}
 
-	int ret = ss_nvme_device_io_with_mdts(records.log_zones[idx[0]].p_address, (void *)&new_log_zone[0], new_log_zone.size(), false);
+	int ret = ss_nvme_device_io_with_mdts(records->log_zones[idx[0]].p_address, (void *)&new_log_zone[0],
+										  new_log_zone.size(), false);
 	if (ret != 0) {
 		std::cerr << "ERROR: could not write while merging two log zones" << std::endl;
 	}
-	records.log_zones[idx[0]].zone_size = new_log_zone.size() / records.device->lba_size_bytes;
-	records.log_zones[idx[0]].write_ptr = records.log_zones[idx[0]].p_address + records.log_zones[idx[0]].zone_size;
+	records->log_zones[idx[0]].zone_size = new_log_zone.size() / records->device->lba_size_bytes;
+	records->log_zones[idx[0]].write_ptr = records->log_zones[idx[0]].p_address + records->log_zones[idx[0]].zone_size;
 
-	records.log_zones[idx[0]].logs.insert(records.log_zones[idx[0]].logs.end(), records.log_zones[idx[1]].logs.begin(), records.log_zones[idx[1]].logs.end());
-	uint64_t saved_size = records.log_zones[idx[1]].logs.size();
-	records.log_zones[idx[1]].logs.clear();
+	records->log_zones[idx[0]].logs.insert(records->log_zones[idx[0]].logs.end(),
+										   records->log_zones[idx[1]].logs.begin(),
+										   records->log_zones[idx[1]].logs.end());
+	uint64_t saved_size = records->log_zones[idx[1]].logs.size();
+	records->log_zones[idx[1]].logs.clear();
 	return saved_size;
 }
 
 void gc(bool force_merge) {
-	PROFILE_SCOPE("gc_" + std::to_string(force_merge) + "_" + std::to_string(records.write_counter));
-	records.log_mtx.lock();
-	records.data_mtx.lock();
+	auto const records = DataMap::GetInstance();
+	PROFILE_SCOPE("gc_" + std::to_string(force_merge) + "_" + std::to_string(records->write_counter));
+	records->log_mtx.lock();
+	records->data_mtx.lock();
 
 	try_logical_conversion();
 	if (force_merge) {
 		uint64_t count = 0;
-		while (full_merge() > records.dd->zone_size / 8 || count < 10) {
+		while (full_merge() > records->dd->zone_size / 8 || count < 10) {
 			merge_log_zones();
 			reclaim_empty_log_zones();
 			count++;
 		}
 	} else {
-		merge(force_merge);
+		merge();
 		reclaim_empty_log_zones();
 	}
 
-	records.data_mtx.unlock();
-	records.log_mtx.unlock();
+	records->data_mtx.unlock();
+	records->log_mtx.unlock();
 }
 
 void gc_loop() {
-	while (records.should_run_gc) {
+	auto const records = DataMap::GetInstance();
+	while (records->should_run_gc) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		uint64_t const write_counter = records.write_counter.load();
+		uint64_t const write_counter = records->write_counter.load();
 		if (write_counter > 0) {
-			records.write_counter -= std::min(write_counter, (uint64_t)28);
+			records->write_counter -= std::min(write_counter, (uint64_t)28);
 		}
 
 		{
-			records.log_mtx.lock_shared();
-			auto num_log_zones = records.count_free_log_zones();
-			records.log_mtx.unlock_shared();
-			while (num_log_zones < records.dd->gc_wmark) {
+			records->log_mtx.lock_shared();
+			auto num_log_zones = records->count_free_log_zones();
+			records->log_mtx.unlock_shared();
+			while (num_log_zones < records->dd->gc_wmark) {
 				gc(true);
-				records.log_mtx.lock_shared();
-				num_log_zones = records.count_free_log_zones();
-				records.log_mtx.unlock_shared();
+				records->log_mtx.lock_shared();
+				num_log_zones = records->count_free_log_zones();
+				records->log_mtx.unlock_shared();
 			}
 		}
 
-		if (records.write_counter < (records.dd->log_zones * records.dd->zone_size) / 4) {
+		if (records->write_counter < (records->dd->log_zones * records->dd->zone_size) / 4) {
 			gc(false);
 		}
 	}
-	records.gc_exited = true;
+	records->gc_exited = true;
 }
 
-uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
-	if (x > n) {
-		return x;
-	}
-
-	n = n + x / 2;
-	n = n - (n % x);
-	return n;
-}
-uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
+inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
 	PROFILE_FUNCTION();
 	UNUSED(my_dev);
-	records.log_mtx.lock_shared();
-	records.data_mtx.lock_shared();
+	auto const records = DataMap::GetInstance();
+	records->log_mtx.lock_shared();
+	records->data_mtx.lock_shared();
 
 	uint64_t size_c = size;
 	uint64_t end_address = address + size;
@@ -555,29 +558,29 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 		uint64_t op_size;
 		ftl_record record, next_record;
 		bool in_log = true;
-		if (records.find_in_log(address, record)) {
+		if (records->find_in_log(address, record)) {
 			in_log = true;
-		} else if (records.find_in_data(address, record)) {
+		} else if (records->find_in_data(address, record)) {
 			in_log = false;
 		}
 
 		bool is_next_address_in_same = true;
-		uint64_t base_p_address = closest_lower_multiple(records.dd->zone_size, record.p_address);
+		uint64_t base_p_address = closest_lower_multiple(records->dd->zone_size, record.p_address);
 
 		uint64_t next_address = address;
 		while (is_next_address_in_same && next_address <= end_address) {
-			next_address += records.device->lba_size_bytes;
+			next_address += records->device->lba_size_bytes;
 			if (in_log) {
-				if (!records.find_in_log(next_address, next_record)) {
+				if (!records->find_in_log(next_address, next_record)) {
 					break;
 				}
 			} else {
-				if (!records.find_in_data(next_address, next_record)) {
+				if (!records->find_in_data(next_address, next_record)) {
 					break;
 				}
 			}
 			is_next_address_in_same =
-					closest_lower_multiple(records.dd->zone_size, next_record.p_address) == base_p_address;
+					closest_lower_multiple(records->dd->zone_size, next_record.p_address) == base_p_address;
 		}
 
 		op_size = std::min(size_c, next_address);
@@ -592,51 +595,54 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 		address += size - size_c;
 	}
 
-	records.data_mtx.unlock_shared();
-	records.log_mtx.unlock_shared();
+	records->data_mtx.unlock_shared();
+	records->log_mtx.unlock_shared();
 
 	return 0;
 }
 
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
 	PROFILE_FUNCTION();
+	auto const records = DataMap::GetInstance();
 	UNUSED(my_dev);
-	records.log_mtx.lock();
+	records->log_mtx.lock();
 	uint64_t size_c = size;
 	while (size_c > 0) {
 		int zone_idx;
-		uint64_t zone_size = records.get_free_log_zone(zone_idx);
-		while(zone_idx == -1) {
-			records.log_mtx.unlock();
+		uint64_t zone_size = records->get_free_log_zone(zone_idx);
+		while (zone_idx == -1) {
+			records->log_mtx.unlock();
 			gc(true);
-			records.log_mtx.lock();
-			zone_size = records.get_free_log_zone(zone_idx);
+			records->log_mtx.lock();
+			zone_size = records->get_free_log_zone(zone_idx);
 		}
 
-		const uint64_t op_size = std::min((records.dd->zone_size - zone_size) * records.device->lba_size_bytes, size_c);
-		const uint64_t num_operations = op_size / records.device->lba_size_bytes;
-		records.write_counter += num_operations;
-		int ret = ss_nvme_device_io_with_mdts(records.log_zones[zone_idx].write_ptr, (char*)buffer + (size - size_c), op_size, false);
+		const uint64_t op_size =
+				std::min((records->dd->zone_size - zone_size) * records->device->lba_size_bytes, size_c);
+		const uint64_t num_operations = op_size / records->device->lba_size_bytes;
+		records->write_counter += num_operations;
+		int ret = ss_nvme_device_io_with_mdts(records->log_zones[zone_idx].write_ptr, (char *)buffer + (size - size_c),
+											  op_size, false);
 		if (ret != 0) {
 			std::cerr << "ERROR: zns_udevice_write zone write failed" << std::endl;
 			return ret;
 		}
 
 		for (uint64_t i = 0; i < num_operations; i++) {
-			auto const l_address = address + (i * records.device->lba_size_bytes);
-			auto const base_address = closest_lower_multiple(records.device->tparams.zns_zone_capacity, l_address);
+			auto const l_address = address + (i * records->device->lba_size_bytes);
+			auto const base_address = closest_lower_multiple(records->device->tparams.zns_zone_capacity, l_address);
 
-			records.delete_from_log_if_exists(l_address);
-			records.add_or_update(zone_idx,
-								  {.l_address = l_address,
-								   .p_address = records.log_zones[zone_idx].write_ptr + i,
-								   .base_address = base_address,
-								   .flag = status_flag::Valid});
+			records->delete_from_log_if_exists(l_address);
+			records->add_or_update(zone_idx,
+								   {.l_address = l_address,
+									.p_address = records->log_zones[zone_idx].write_ptr + i,
+									.base_address = base_address,
+									.flag = status_flag::Valid});
 		}
-		records.log_zones[zone_idx].write_ptr += num_operations;
+		records->log_zones[zone_idx].write_ptr += num_operations;
 		size_c -= op_size;
 		address += size - size_c;
 	}
-	records.log_mtx.unlock();
+	records->log_mtx.unlock();
 	return 0;
 }

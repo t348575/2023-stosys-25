@@ -1,8 +1,11 @@
-#include <algorithm>
 #include <cstdint>
 
 #include "ftl.h"
 #include "visual_profiler.h"
+
+DataMap *DataMap::records = nullptr;
+
+inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
 inline int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
 	PROFILE_FUNCTION();
@@ -20,8 +23,10 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 			log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
 			ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 		} else {
-			data_zones.push_back(DataRecord(
-					{.l_address = 0, .p_address = i * dd->zone_size, .base_address = j * device->tparams.zns_zone_capacity, .flag = status_flag::Valid}));
+			data_zones.push_back(DataRecord({.l_address = 0,
+											 .p_address = i * dd->zone_size,
+											 .base_address = j * device->tparams.zns_zone_capacity,
+											 .flag = status_flag::Valid}));
 			ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 			j++;
 		}
@@ -65,7 +70,7 @@ std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
 	// auto guard = ReadGuard(*this);
 	std::vector<struct count_base_address_sums> sums;
 	sums.reserve(dd->log_zones * dd->zone_size);
-	for (const auto &outer: log_zones) {
+	for (const auto &outer : log_zones) {
 		for (const auto &t : outer.logs) {
 			bool found = false;
 			for (auto &s : sums) {
@@ -153,10 +158,10 @@ bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64
 
 bool DataMap::remove_unused_data_zone(const uint64_t base_address, ftl_record &record) {
 	PROFILE_FUNCTION();
-	for (uint64_t i = 0; i < records.data_zones.size(); i++) {
-		if (records.data_zones[i].record.base_address == base_address) {
-			record = records.data_zones[i].record;
-			records.data_zones.erase(records.data_zones.begin() + i);
+	for (uint64_t i = 0; i < data_zones.size(); i++) {
+		if (data_zones[i].record.base_address == base_address) {
+			record = data_zones[i].record;
+			data_zones.erase(data_zones.begin() + i);
 			return true;
 		}
 	}
