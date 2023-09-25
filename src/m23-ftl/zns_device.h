@@ -94,14 +94,12 @@ struct device_data {
 	uint64_t nsid;
 	uint64_t mdts;
 	uint64_t zone_size;
-	uint64_t quarter_zone_size;
-	uint64_t zasl;
+	uint64_t start_merge_threshold;
 	uint64_t log_zones;
 	uint64_t n_zones;
 	uint64_t gc_wmark;
 };
 
-extern std::vector<struct ftl_record> logs;
 extern class DataMap records;
 
 int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_dev);

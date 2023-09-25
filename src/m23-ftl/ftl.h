@@ -3,6 +3,7 @@
 #ifndef FTL_H
 #define FTL_H
 
+#include <shared_mutex>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -48,17 +49,19 @@ public:
 	bool find_in_data(const uint64_t address, ftl_record &record);
 	void add_or_update(const uint64_t idx, const ftl_record record);
 	uint64_t get_free_log_zone(int &index);
+	uint64_t count_free_log_zones();
 	bool get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx);
 	bool remove_unused_data_zone(const uint64_t base_address, ftl_record &record);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
 	void delete_from_log_if_exists(const uint64_t address);
-	uint64_t get_num_free_log_zones();
+	std::vector<struct count_base_address_sums> count_base_addresses();
 
 	std::vector<LogRecord> log_zones;
 	std::vector<DataRecord> data_zones;
 	const struct user_zns_device *device;
 	const struct device_data *dd;
-	std::mutex mtx;
+	std::shared_mutex data_mtx, log_mtx;
+	std::atomic<uint64_t> write_counter;
 	bool should_run_gc = true;
 	bool gc_exited = false;
 };

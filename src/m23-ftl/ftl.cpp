@@ -48,6 +48,46 @@ uint64_t DataMap::get_free_log_zone(int &index) {
 	return 0;
 }
 
+uint64_t DataMap::count_free_log_zones() {
+	PROFILE_FUNCTION();
+	uint64_t count = 0;
+	for (uint i = 0; i < log_zones.size(); i++) {
+		// auto guard = ReadGuard(log_zones[i]);
+		if (log_zones[i].zone_size != dd->zone_size) {
+			count += dd->zone_size - log_zones[i].zone_size;
+		}
+	}
+	return count / dd->zone_size;
+}
+
+std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
+	PROFILE_FUNCTION();
+	// auto guard = ReadGuard(*this);
+	std::vector<struct count_base_address_sums> sums;
+	sums.reserve(dd->log_zones * dd->zone_size);
+	for (const auto &outer: log_zones) {
+		for (const auto &t : outer.logs) {
+			bool found = false;
+			for (auto &s : sums) {
+				if (s.base_address == t.base_address) {
+					s.count++;
+					found = true;
+					break;
+				}
+			}
+
+			if (!found) {
+				sums.push_back({.base_address = t.base_address, .p_address = t.p_address, .count = 1});
+			}
+		}
+	}
+	std::sort(sums.rbegin(), sums.rend(),
+			  [](const struct count_base_address_sums &a, const struct count_base_address_sums &b) {
+				  return a.count < b.count;
+			  });
+	return sums;
+}
+
 std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
 	PROFILE_FUNCTION();
 	// auto guard = ReadGuard(*this);
@@ -166,16 +206,4 @@ void DataMap::delete_from_log_if_exists(const uint64_t address) {
 			}
 		}
 	}
-}
-
-uint64_t DataMap::get_num_free_log_zones() {
-	PROFILE_FUNCTION();
-	uint64_t num_free_zones = 0;
-	for (uint i = 0; i < records.log_zones.size(); i++) {
-		if (records.log_zones[i].zone_size != records.dd->zone_size) {
-			num_free_zones++;
-		}
-	}
-
-	return num_free_zones;
 }

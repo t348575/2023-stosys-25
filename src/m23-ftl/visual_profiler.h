@@ -7,6 +7,7 @@
 #include <fstream>
 #include <thread>
 #include <mutex>
+// #define PROFILING 1
 #ifdef PROFILING
 #define PROFILE_SCOPE(name) VisualProfilerTimer timer##__LINE__(name)
 #define PROFILE_FUNCTION()  PROFILE_SCOPE(__FUNCTION__)
