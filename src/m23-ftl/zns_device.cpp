@@ -352,73 +352,6 @@ uint64_t full_merge() {
 	return count[0].count;
 }
 
-uint64_t merge() {
-	PROFILE_FUNCTION();
-	auto const records = DataMap::GetInstance();
-	uint64_t total_merged = 0;
-	for (auto &t : records->log_zones) {
-		if (t.logs.size() < records->dd->start_merge_threshold) {
-			continue;
-		}
-
-		const auto count = t.count_base_addresses();
-		if (count.size() == 0) {
-			continue;
-		}
-
-		const auto base_p_address = closest_lower_multiple(records->dd->zone_size, count[0].p_address);
-		std::vector<char> log_zone;
-		log_zone.resize(records->device->tparams.zns_zone_capacity);
-		int ret = ss_nvme_device_io_with_mdts(base_p_address, (void *)&log_zone[0],
-											  records->device->tparams.zns_zone_capacity, true);
-		if (ret != 0) {
-			std::cerr << "ERROR: could not read log zone for merge" << std::endl;
-		}
-
-		ftl_record data_zone_record;
-		uint64_t data_zone_idx;
-		if (!records->get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
-			std::cerr << "ERROR: could not find data zone for " << std::to_string(count[0].base_address) << std::endl;
-		}
-
-		std::vector<char> data_zone;
-		data_zone.resize(records->device->tparams.zns_zone_capacity);
-		ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
-										  records->device->tparams.zns_zone_capacity, true);
-		if (ret != 0) {
-			std::cerr << "ERROR: could not read data zone for merge" << std::endl;
-		}
-
-		records->set_data_zone(data_zone_idx,
-							   {.l_address = 0,
-								.p_address = data_zone_record.p_address,
-								.base_address = count[0].base_address,
-								.flag = status_flag::Valid});
-
-		const auto removed = t.remove_base_address(count[0].base_address);
-		const auto sub_by = closest_lower_multiple(records->dd->zone_size, removed[0].p_address);
-		for (const auto &r : removed) {
-			memcpy((void *)&data_zone[r.l_address - count[0].base_address],
-				   (void *)&log_zone[(r.p_address - sub_by) * records->device->lba_size_bytes],
-				   records->device->lba_size_bytes);
-		}
-
-		ret = ss_zns_device_zone_reset(data_zone_record.p_address);
-		if (ret != 0) {
-			std::cerr << "ERROR: could not reset data zone for merge" << std::endl;
-		}
-
-		ret = ss_nvme_device_io_with_mdts(data_zone_record.p_address, (void *)&data_zone[0],
-										  records->device->tparams.zns_zone_capacity, false);
-		if (ret != 0) {
-			std::cerr << "ERROR: could not write data zone for merge" << std::endl;
-		}
-
-		total_merged += count[0].count;
-	}
-	return total_merged;
-}
-
 uint64_t merge_log_zones() {
 	PROFILE_FUNCTION();
 	auto const records = DataMap::GetInstance();
@@ -481,6 +414,7 @@ uint64_t merge_log_zones() {
 	if (ret != 0) {
 		std::cerr << "ERROR: could not write while merging two log zones" << std::endl;
 	}
+
 	records->log_zones[idx[0]].zone_size = new_log_zone.size() / records->device->lba_size_bytes;
 	records->log_zones[idx[0]].write_ptr = records->log_zones[idx[0]].p_address + records->log_zones[idx[0]].zone_size;
 
@@ -499,16 +433,17 @@ void gc(bool force_merge) {
 	records->data_mtx.lock();
 
 	try_logical_conversion();
+	reclaim_empty_log_zones();
 	if (force_merge) {
 		uint64_t count = 0;
-		while (full_merge() > records->dd->zone_size / 8 || count < 10) {
-			merge_log_zones();
-			reclaim_empty_log_zones();
+		while (full_merge() > records->dd->zone_size / 4 && count < 10) {
 			count++;
 		}
+
+		while (merge_log_zones() != 0) {}
 	} else {
-		merge();
-		reclaim_empty_log_zones();
+		full_merge();
+		while (merge_log_zones() != 0) {}
 	}
 
 	records->data_mtx.unlock();
@@ -521,22 +456,20 @@ void gc_loop() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		uint64_t const write_counter = records->write_counter.load();
 		if (write_counter > 0) {
-			records->write_counter -= std::min(write_counter, (uint64_t)28);
+			records->write_counter -= std::min(write_counter, (uint64_t)30);
 		}
 
-		{
+		records->log_mtx.lock_shared();
+		uint64_t num_free_log_pages = records->count_free_log_pages();
+		records->log_mtx.unlock_shared();
+		while (num_free_log_pages / records->dd->zone_size < records->dd->gc_wmark) {
+			gc(true);
 			records->log_mtx.lock_shared();
-			auto num_log_zones = records->count_free_log_zones();
+			num_free_log_pages = records->count_free_log_pages();
 			records->log_mtx.unlock_shared();
-			while (num_log_zones < records->dd->gc_wmark) {
-				gc(true);
-				records->log_mtx.lock_shared();
-				num_log_zones = records->count_free_log_zones();
-				records->log_mtx.unlock_shared();
-			}
 		}
 
-		if (records->write_counter < (records->dd->log_zones * records->dd->zone_size) / 4) {
+		if (records->write_counter < (records->dd->log_zones * records->dd->zone_size) / 4 && num_free_log_pages < ((records->dd->log_zones / 2) * records->dd->zone_size)) {
 			gc(false);
 		}
 	}

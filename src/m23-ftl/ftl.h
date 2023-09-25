@@ -56,7 +56,7 @@ public:
 	bool find_in_data(const uint64_t address, ftl_record &record);
 	void add_or_update(const uint64_t idx, const ftl_record record);
 	uint64_t get_free_log_zone(int &index);
-	uint64_t count_free_log_zones();
+	uint64_t count_free_log_pages();
 	bool get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx);
 	bool remove_unused_data_zone(const uint64_t base_address, ftl_record &record);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
