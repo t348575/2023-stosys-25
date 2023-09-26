@@ -29,7 +29,7 @@ public:
 		logs.reserve(zone_size);
 	};
 	std::vector<struct count_base_address_sums> count_base_addresses();
-	std::vector<ftl_record> remove_base_address(const uint64_t base_address);
+	std::vector<ftl_record> remove_base_address(const uint64_t base_address, const bool simulate);
 
 	uint64_t p_address, zone_size = 0, write_ptr;
 	std::vector<ftl_record> logs;

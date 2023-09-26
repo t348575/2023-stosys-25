@@ -281,11 +281,31 @@ uint64_t full_merge() {
 		return 0;
 	}
 
+	std::vector<float> p_address_ratio_count;
+	p_address_ratio_count.reserve(count.size());
+	for (const auto &c: count) {
+		std::set<uint64_t> distinct_p_addresses_test;
+		for (auto &t : records->log_zones) {
+			const auto removed = t.remove_base_address(c.base_address, true);
+			for (const auto &t : removed) {
+				distinct_p_addresses_test.insert(closest_lower_multiple(records->dd->zone_size, t.p_address));
+			}
+		}
+		p_address_ratio_count.push_back((float)c.count / (float)distinct_p_addresses_test.size());
+	}
+
+	count_base_address_sums merge_record = count[0];
+	for (uint64_t i = 1; i < count.size() - 1; i++) {
+		if (p_address_ratio_count[i] > p_address_ratio_count[i - 1] && count[i - 1].count / 2 <= count[i].count) {
+			merge_record = count[i];
+		}
+	}
+
 	std::vector<ftl_record> base_address_items;
 	std::set<uint64_t> distinct_p_addresses;
 	base_address_items.reserve(records->dd->log_zones * records->dd->zone_size);
 	for (auto &t : records->log_zones) {
-		const auto removed = t.remove_base_address(count[0].base_address);
+		const auto removed = t.remove_base_address(merge_record.base_address, false);
 		base_address_items.insert(base_address_items.end(), removed.begin(), removed.end());
 	}
 
@@ -306,7 +326,7 @@ uint64_t full_merge() {
 
 		for (const auto &item : base_address_items) {
 			if (closest_lower_multiple(records->dd->zone_size, item.p_address) == p_address) {
-				memcpy((void *)&log_zone[item.l_address - count[0].base_address],
+				memcpy((void *)&log_zone[item.l_address - merge_record.base_address],
 					   (void *)&temp_buffer[(item.p_address - base_p_address) * records->device->lba_size_bytes],
 					   records->device->lba_size_bytes);
 			}
@@ -315,8 +335,8 @@ uint64_t full_merge() {
 
 	ftl_record data_zone_record;
 	uint64_t data_zone_idx;
-	if (!records->get_data_zone(count[0].base_address, data_zone_record, data_zone_idx)) {
-		std::cerr << "ERROR: could not find data zone for " << std::to_string(count[0].base_address) << std::endl;
+	if (!records->get_data_zone(merge_record.base_address, data_zone_record, data_zone_idx)) {
+		std::cerr << "ERROR: could not find data zone for " << std::to_string(merge_record.base_address) << std::endl;
 	}
 
 	std::vector<char> data_zone;
@@ -330,12 +350,12 @@ uint64_t full_merge() {
 	records->set_data_zone(data_zone_idx,
 						   {.l_address = 0,
 							.p_address = data_zone_record.p_address,
-							.base_address = count[0].base_address,
+							.base_address = merge_record.base_address,
 							.flag = status_flag::Valid});
 
 	for (const auto &item : base_address_items) {
-		memcpy((void *)&data_zone[item.l_address - count[0].base_address],
-			   (void *)&log_zone[item.l_address - count[0].base_address], records->device->lba_size_bytes);
+		memcpy((void *)&data_zone[item.l_address - merge_record.base_address],
+			   (void *)&log_zone[item.l_address - merge_record.base_address], records->device->lba_size_bytes);
 	}
 
 	ret = ss_zns_device_zone_reset(data_zone_record.p_address);
@@ -349,7 +369,7 @@ uint64_t full_merge() {
 		std::cerr << "ERROR: could not write data zone for merge" << std::endl;
 	}
 
-	return count[0].count;
+	return merge_record.count;
 }
 
 uint64_t merge_log_zones() {
@@ -443,7 +463,6 @@ void gc(bool force_merge) {
 		while (merge_log_zones() != 0) {}
 	} else {
 		full_merge();
-		while (merge_log_zones() != 0) {}
 	}
 
 	records->data_mtx.unlock();

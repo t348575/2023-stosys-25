@@ -112,15 +112,17 @@ std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
 	return sums;
 }
 
-std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_address) {
+std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_address, const bool simulate) {
 	PROFILE_FUNCTION();
 	std::vector<ftl_record> removing;
 	removing.reserve(logs.size());
 	for (uint64_t i = 0; i < logs.size(); i++) {
 		if (logs[i].base_address == base_address) {
 			removing.push_back(logs[i]);
-			logs.erase(logs.begin() + i);
-			i--;
+			if (!simulate) {
+				logs.erase(logs.begin() + i);
+				i--;
+			}
 		}
 	}
 	return removing;
