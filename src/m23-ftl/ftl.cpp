@@ -35,15 +35,13 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 
 void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
 	PROFILE_FUNCTION();
-	// auto guard = WriteGuard(log_zones[idx]);
 	log_zones[idx].logs.push_back(record);
-	log_zones[idx].zone_size += 1;
+	log_zones[idx].zone_size++;
 }
 
 uint64_t DataMap::get_free_log_zone(int &index) {
 	PROFILE_FUNCTION();
 	for (uint i = 0; i < log_zones.size(); i++) {
-		// auto guard = ReadGuard(log_zones[i]);
 		if (log_zones[i].zone_size != dd->zone_size) {
 			index = i;
 			return log_zones[i].zone_size;
@@ -53,21 +51,17 @@ uint64_t DataMap::get_free_log_zone(int &index) {
 	return 0;
 }
 
-uint64_t DataMap::count_free_log_zones() {
+uint64_t DataMap::count_free_log_pages() {
 	PROFILE_FUNCTION();
 	uint64_t count = 0;
-	for (uint i = 0; i < log_zones.size(); i++) {
-		// auto guard = ReadGuard(log_zones[i]);
-		if (log_zones[i].zone_size != dd->zone_size) {
-			count += dd->zone_size - log_zones[i].zone_size;
-		}
+	for (const auto &t: log_zones) {
+		count += dd->zone_size - t.zone_size;
 	}
-	return count / dd->zone_size;
+	return count;
 }
 
 std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
 	PROFILE_FUNCTION();
-	// auto guard = ReadGuard(*this);
 	std::vector<struct count_base_address_sums> sums;
 	sums.reserve(dd->log_zones * dd->zone_size);
 	for (const auto &outer : log_zones) {
@@ -95,7 +89,6 @@ std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
 
 std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
 	PROFILE_FUNCTION();
-	// auto guard = ReadGuard(*this);
 	std::vector<struct count_base_address_sums> sums;
 	sums.reserve(logs.size());
 	for (const auto &t : logs) {
@@ -119,15 +112,17 @@ std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
 	return sums;
 }
 
-std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_address) {
+std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_address, const bool simulate) {
 	PROFILE_FUNCTION();
-	// auto guard = WriteGuard(*this);
 	std::vector<ftl_record> removing;
+	removing.reserve(logs.size());
 	for (uint64_t i = 0; i < logs.size(); i++) {
 		if (logs[i].base_address == base_address) {
 			removing.push_back(logs[i]);
-			logs.erase(logs.begin() + i);
-			i--;
+			if (!simulate) {
+				logs.erase(logs.begin() + i);
+				i--;
+			}
 		}
 	}
 	return removing;
@@ -136,7 +131,6 @@ std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_addre
 bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx) {
 	PROFILE_FUNCTION();
 	for (uint64_t i = 0; i < data_zones.size(); i++) {
-		// auto guard = ReadGuard(data_zones[i]);
 		if (data_zones[i].record.base_address == l_address && data_zones[i].record.flag == status_flag::Valid) {
 			record = data_zones[i].record;
 			idx = i;
@@ -144,15 +138,6 @@ bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64
 		}
 	}
 
-	for (uint64_t i = 0; i < data_zones.size(); i++) {
-		// auto guard = WriteGuard(data_zones[i]);
-		if (data_zones[i].record.flag == status_flag::Invalid) {
-			data_zones[i].record.flag = status_flag::Valid;
-			record = data_zones[i].record;
-			idx = i;
-			return true;
-		}
-	}
 	return false;
 }
 
@@ -171,7 +156,6 @@ bool DataMap::remove_unused_data_zone(const uint64_t base_address, ftl_record &r
 bool DataMap::find_in_log(const uint64_t address, ftl_record &record) {
 	PROFILE_FUNCTION();
 	for (auto &t : log_zones) {
-		// auto guard = ReadGuard(t);
 		for (const auto &inner : t.logs) {
 			if (inner.l_address == address) {
 				record = inner;
@@ -187,7 +171,6 @@ bool DataMap::find_in_data(const uint64_t address, ftl_record &record) {
 	PROFILE_FUNCTION();
 	const auto base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, address);
 	for (auto &t : data_zones) {
-		// auto guard = ReadGuard(t);
 		if (t.record.base_address == base_address && t.record.flag == status_flag::Valid) {
 			record = t.record;
 			record.p_address += (address - base_address) / device->lba_size_bytes;
