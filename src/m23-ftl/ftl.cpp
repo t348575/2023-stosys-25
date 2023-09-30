@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <iostream>
 
 #include "ftl.h"
 #include "visual_profiler.h"
@@ -17,19 +18,21 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 	dd = _dd;
 	PROFILE_FUNCTION();
 	log_zones.reserve(device->tparams.zns_num_zones);
-	uint32_t j = 0;
-	for (uint32_t i = 0; i < device->tparams.zns_num_zones; i++) {
-		if (i < dd->log_zones) {
-			log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
-			ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
-		} else {
-			data_zones.push_back(DataRecord({.l_address = 0,
-											 .p_address = i * dd->zone_size,
-											 .base_address = j * device->tparams.zns_zone_capacity,
-											 .flag = status_flag::Valid}));
-			ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
-			j++;
-		}
+	uint32_t i = 0;
+	for (; i < dd->log_zones / 2; i++) {
+		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size, false));
+		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
+	}
+	for (; i < dd->log_zones; i++) {
+		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size, true));
+		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
+	}
+	for (uint32_t j = 0; i < device->tparams.zns_num_zones; i++, j++) {
+		data_zones.push_back(DataRecord({.l_address = 0,
+										 .p_address = i * dd->zone_size,
+										 .base_address = j * device->tparams.zns_zone_capacity,
+										 .flag = status_flag::Invalid}));
+		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 	}
 }
 
@@ -41,7 +44,8 @@ void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
 
 uint64_t DataMap::get_free_log_zone(int &index) {
 	PROFILE_FUNCTION();
-	for (uint i = 0; i < log_zones.size(); i++) {
+	auto const size = log_zones.size();
+	for (uint64_t i = 0; i < size; i++) {
 		if (log_zones[i].zone_size != dd->zone_size) {
 			index = i;
 			return log_zones[i].zone_size;
@@ -54,7 +58,7 @@ uint64_t DataMap::get_free_log_zone(int &index) {
 uint64_t DataMap::count_free_log_pages() {
 	PROFILE_FUNCTION();
 	uint64_t count = 0;
-	for (const auto &t: log_zones) {
+	for (const auto &t : log_zones) {
 		count += dd->zone_size - t.zone_size;
 	}
 	return count;
@@ -131,7 +135,11 @@ std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_addre
 bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx) {
 	PROFILE_FUNCTION();
 	for (uint64_t i = 0; i < data_zones.size(); i++) {
-		if (data_zones[i].record.base_address == l_address && data_zones[i].record.flag == status_flag::Valid) {
+		if (data_zones[i].record.base_address == l_address) {
+			if (data_zones[i].record.flag == status_flag::Invalid) {
+				data_zones[i].record.flag = status_flag::Valid;
+			}
+
 			record = data_zones[i].record;
 			idx = i;
 			return true;

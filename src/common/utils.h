@@ -26,7 +26,7 @@ SOFTWARE.
 #include <cstdint>
 #include <string>
 
-#define ONE_BILLION  1000000000.0
+#define ONE_BILLION 1000000000.0
 
 extern "C" {
 void write_pattern(char *data, uint64_t len);
@@ -34,8 +34,14 @@ void print_pattern(const char *data, uint64_t len, bool in_hex);
 void match_pattern(char *data, uint64_t len);
 void write_pattern_with_start(char *data, uint64_t len, uint64_t s);
 void match_pattern_with_start(char *data, uint64_t len, uint64_t s);
+
+uint32_t u32_from_buffer(const char *buffer);
+uint16_t u16_from_buffer(const char *buffer);
+
+void u32_to_buffer(const uint32_t value, char *output);
+void u16_to_buffer(const uint16_t value, char *output);
 }
 
 uint64_t microseconds_since_epoch();
 std::string get_vm_stats();
-#endif //STOSYS_PROJECT_UTILS_H
+#endif // STOSYS_PROJECT_UTILS_H

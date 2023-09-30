@@ -24,114 +24,187 @@ SOFTWARE.
 #define STOSYS_PROJECT_S2FILESYSTEM_H
 
 #include "rocksdb/env.h"
-#include "rocksdb/io_status.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 
-#include <zns_device.h>
 #include <iostream>
+#include <vector>
+#include <zns_device.h>
 
 namespace ROCKSDB_NAMESPACE {
+	const static uint8_t BLOCK_BIT_MASKS[4] = {0b00000011, 0b00001100, 0b00110000, 0b11000000};
 
-    class S2FileSystem : public FileSystem {
-    public:
-        // No copying allowed
-        S2FileSystem(std::string uri, bool debug);
-        S2FileSystem(const S2FileSystem&) = delete;
-        virtual ~S2FileSystem();
+	class SuperBlock {
+	public:
+		SuperBlock() = default;
+		SuperBlock(const std::vector<char> &buffer);
+		void serialize(std::vector<char> &output);
+		uint32_t block_map_size;
+		uint16_t original_inode_reserved;
+	};
 
-        IOStatus IsDirectory(const std::string &, const IOOptions &options, bool *is_dir, IODebugContext *) override;
+	struct INodeSuperBlock {
+		uint32_t block;
+		uint8_t num_inodes;
+	};
 
-        IOStatus
-        NewSequentialFile(const std::string &fname, const FileOptions &file_opts,
-                          std::unique_ptr<FSSequentialFile> *result,
-                          __attribute__ ((unused)) IODebugContext *dbg);
+	struct INodePointer {
+		uint32_t block;
+		uint8_t offset;
+	};
 
-        IOStatus
-        NewRandomAccessFile(const std::string &fname, const FileOptions &file_opts,
-                            std::unique_ptr<FSRandomAccessFile> *result,
-                            __attribute__ ((unused)) IODebugContext *dbg);
+	class INode {
+	public:
+		enum Type : uint8_t { File = 0, Directory };
 
-        IOStatus
-        NewWritableFile(const std::string &fname, const FileOptions &file_opts, std::unique_ptr<FSWritableFile> *result,
-                        __attribute__ ((unused)) IODebugContext *dbg);
+		INode() = default;
+		INode(const std::vector<char> &buffer);
+		void serialize(std::vector<char> &output) const;
 
-        IOStatus
-        ReopenWritableFile(const std::string &, const FileOptions &, std::unique_ptr<FSWritableFile> *,
-                           IODebugContext *);
+		bool is_nested;
+		Type inode_type;
+		uint32_t num_disk_pointers;
+		uint16_t mode, uid, gid, links_count;
+		uint32_t size, time, ctime, mtime, dtime;
+		uint32_t blocks, flags, osd1;
+		uint32_t generation, file_acl, dir_acl;
+		INodePointer disk_pointers[25]; // or 13 if normal size
+		INodePointer next_pointer;
+	};
 
-        IOStatus
-        NewRandomRWFile(const std::string &, const FileOptions &, std::unique_ptr<FSRandomRWFile> *, IODebugContext *);
+	struct INodeMap {
+		INode inode;
+		uint32_t block;
+	};
 
-        IOStatus NewMemoryMappedFileBuffer(const std::string &, std::unique_ptr<MemoryMappedFileBuffer> *);
+	class DirectoryEntry {
+	public:
+		uint32_t block;
+		uint8_t offset;
+		uint32_t name_len;
+		std::string name;
 
-        IOStatus NewDirectory(const std::string &name, const IOOptions &io_opts, std::unique_ptr<FSDirectory> *result,
-                              __attribute__ ((unused)) IODebugContext *dbg);
+		DirectoryEntry() = default;
+		DirectoryEntry(const std::vector<char> &buffer);
+		void serialize(std::vector<char> &output) const;
+	};
 
-        const char *Name() const;
+	class S2FileSystem : public FileSystem {
+	public:
+		enum FsError : int { CouldNotFindInode = -1 };
+		enum BlockType : uint8_t { Unused = 0, Inode, Data };
 
-        IOStatus GetFreeSpace(const std::string &, const IOOptions &, uint64_t *, IODebugContext *);
+		// No copying allowed
+		S2FileSystem(std::string uri, bool debug);
+		S2FileSystem(const S2FileSystem &) = delete;
+		virtual ~S2FileSystem();
 
-        IOStatus Truncate(const std::string &, size_t, const IOOptions &, IODebugContext *);
+		IOStatus IsDirectory(const std::string &, const IOOptions &options, bool *is_dir, IODebugContext *) override;
 
-        IOStatus CreateDir(const std::string &dirname, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewSequentialFile(const std::string &fname, const FileOptions &file_opts,
+								   std::unique_ptr<FSSequentialFile> *result,
+								   __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus CreateDirIfMissing(const std::string &dirname, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewRandomAccessFile(const std::string &fname, const FileOptions &file_opts,
+									 std::unique_ptr<FSRandomAccessFile> *result,
+									 __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus
-        GetFileSize(const std::string &fname, const IOOptions &options, uint64_t *file_size, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewWritableFile(const std::string &fname, const FileOptions &file_opts,
+								 std::unique_ptr<FSWritableFile> *result, __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus DeleteDir(const std::string &dirname, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus ReopenWritableFile(const std::string &, const FileOptions &, std::unique_ptr<FSWritableFile> *,
+									IODebugContext *);
 
-        IOStatus
-        GetFileModificationTime(const std::string &fname, const IOOptions &options, uint64_t *file_mtime,
-                                __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewRandomRWFile(const std::string &, const FileOptions &, std::unique_ptr<FSRandomRWFile> *,
+								 IODebugContext *);
 
-        IOStatus
-        GetAbsolutePath(const std::string &db_path, const IOOptions &options, std::string *output_path,
-                        __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewMemoryMappedFileBuffer(const std::string &, std::unique_ptr<MemoryMappedFileBuffer> *);
 
-        IOStatus DeleteFile(const std::string& fname,
-                            const IOOptions& options,
-                            IODebugContext* dbg);
+		IOStatus NewDirectory(const std::string &name, const IOOptions &io_opts, std::unique_ptr<FSDirectory> *result,
+							  __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus
-        NewLogger(const std::string &fname, const IOOptions &io_opts, std::shared_ptr<Logger> *result,
-                  __attribute__ ((unused)) IODebugContext *dbg);
+		const char *Name() const;
 
-        IOStatus GetTestDirectory(const IOOptions &options, std::string *path, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus GetFreeSpace(const std::string &, const IOOptions &, uint64_t *, IODebugContext *);
 
-        IOStatus UnlockFile(FileLock *lock, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus Truncate(const std::string &, size_t, const IOOptions &, IODebugContext *);
 
-        IOStatus LockFile(const std::string &fname, const IOOptions &options, FileLock **lock, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus CreateDir(const std::string &dirname, const IOOptions &options,
+						   __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus AreFilesSame(const std::string &, const std::string &, const IOOptions &, bool *, IODebugContext *);
+		IOStatus CreateDirIfMissing(const std::string &dirname, const IOOptions &options,
+									__attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus NumFileLinks(const std::string &, const IOOptions &, uint64_t *, IODebugContext *);
+		IOStatus GetFileSize(const std::string &fname, const IOOptions &options, uint64_t *file_size,
+							 __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus LinkFile(const std::string &, const std::string &, const IOOptions &, IODebugContext *);
+		IOStatus DeleteDir(const std::string &dirname, const IOOptions &options,
+						   __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus
-        RenameFile(const std::string &src, const std::string &target, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus GetFileModificationTime(const std::string &fname, const IOOptions &options, uint64_t *file_mtime,
+										 __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus
-        GetChildrenFileAttributes(const std::string &dir, const IOOptions &options, std::vector<FileAttributes> *result,
-                                  __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus GetAbsolutePath(const std::string &db_path, const IOOptions &options, std::string *output_path,
+								 __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus
-        GetChildren(const std::string &dir, const IOOptions &options, std::vector<std::string> *result,
-                    __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus DeleteFile(const std::string &fname, const IOOptions &options, IODebugContext *dbg);
 
-        IOStatus FileExists(const std::string &fname, const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus NewLogger(const std::string &fname, const IOOptions &io_opts, std::shared_ptr<Logger> *result,
+						   __attribute__((unused)) IODebugContext *dbg);
 
-        IOStatus ReuseWritableFile(const std::string &fname, const std::string &old_fname, const FileOptions &file_opts,
-                                   std::unique_ptr<FSWritableFile> *result, __attribute__ ((unused)) IODebugContext *dbg);
+		IOStatus GetTestDirectory(const IOOptions &options, std::string *path,
+								  __attribute__((unused)) IODebugContext *dbg);
 
-    private:
-        struct user_zns_device *_zns_dev;
-        std::string _uri;
-        const std::string _fs_delimiter = "/";
-    };
-}
+		IOStatus UnlockFile(FileLock *lock, const IOOptions &options, __attribute__((unused)) IODebugContext *dbg);
 
-#endif //STOSYS_PROJECT_S2FILESYSTEM_H
+		IOStatus LockFile(const std::string &fname, const IOOptions &options, FileLock **lock,
+						  __attribute__((unused)) IODebugContext *dbg);
+
+		IOStatus AreFilesSame(const std::string &, const std::string &, const IOOptions &, bool *, IODebugContext *);
+
+		IOStatus NumFileLinks(const std::string &, const IOOptions &, uint64_t *, IODebugContext *);
+
+		IOStatus LinkFile(const std::string &, const std::string &, const IOOptions &, IODebugContext *);
+
+		IOStatus RenameFile(const std::string &src, const std::string &target, const IOOptions &options,
+							__attribute__((unused)) IODebugContext *dbg);
+
+		IOStatus GetChildrenFileAttributes(const std::string &dir, const IOOptions &options,
+										   std::vector<FileAttributes> *result,
+										   __attribute__((unused)) IODebugContext *dbg);
+
+		IOStatus GetChildren(const std::string &dir, const IOOptions &options, std::vector<std::string> *result,
+							 __attribute__((unused)) IODebugContext *dbg);
+
+		IOStatus FileExists(const std::string &fname, const IOOptions &options,
+							__attribute__((unused)) IODebugContext *dbg);
+
+		IOStatus ReuseWritableFile(const std::string &fname, const std::string &old_fname, const FileOptions &file_opts,
+								   std::unique_ptr<FSWritableFile> *result,
+								   __attribute__((unused)) IODebugContext *dbg);
+
+		// page number, 1 indexed
+		void SetBlockType(const uint16_t num, const BlockType block_type);
+		int FlushBlockMap();
+		int FlushSuperBlock();
+		int FlushInodeBlock(const uint32_t block);
+		uint32_t AddInodeBlock(const INode node);
+
+	private:
+		struct user_zns_device *zns_dev;
+		std::string _uri;
+		const std::string _fs_delimiter = "/";
+
+		// indexes offset after super block and block_map
+		std::vector<char> block_map;
+		std::vector<struct INodeMap> inodes;
+		std::vector<struct INodeSuperBlock> inode_super_blocks;
+		uint32_t block_map_offset;
+		uint32_t inodes_per_block;
+		SuperBlock super_block;
+		DataMap *device = DataMap::get_instance();
+	};
+} // namespace ROCKSDB_NAMESPACE
+
+#endif // STOSYS_PROJECT_S2FILESYSTEM_H

@@ -12,7 +12,7 @@
 #include "../common/unused.h"
 #include "zns_device.h"
 
-enum status_flag { Valid = 0, Invalid = 2 };
+enum status_flag : uint8_t { Valid = 0, Invalid = 2 };
 
 struct ftl_record {
 	uint64_t l_address, p_address, base_address;
@@ -25,13 +25,15 @@ struct count_base_address_sums {
 
 class LogRecord {
 public:
-	LogRecord(const uint64_t p_address, const uint64_t zone_size) : p_address(p_address), write_ptr(p_address) {
+	LogRecord(const uint64_t p_address, const uint64_t zone_size, const bool is_seq)
+		: p_address(p_address), write_ptr(p_address), is_seq(is_seq) {
 		logs.reserve(zone_size);
 	};
 	std::vector<struct count_base_address_sums> count_base_addresses();
 	std::vector<ftl_record> remove_base_address(const uint64_t base_address, const bool simulate);
 
 	uint64_t p_address, zone_size = 0, write_ptr;
+	bool is_seq;
 	std::vector<ftl_record> logs;
 };
 
@@ -44,7 +46,7 @@ public:
 
 class DataMap {
 public:
-	static DataMap *GetInstance() {
+	static DataMap *get_instance() {
 		if (records == nullptr) {
 			records = new DataMap();
 		}
