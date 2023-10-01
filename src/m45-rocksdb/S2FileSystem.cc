@@ -25,6 +25,7 @@ SOFTWARE.
 #include <string>
 #include <sys/mman.h>
 
+#include "FSImpls.h"
 #include <stosys_debug.h>
 #include <utils.h>
 
@@ -39,9 +40,9 @@ namespace ROCKSDB_NAMESPACE {
 		u16_to_buffer(original_inode_reserved, &output[4]);
 	}
 
-	INode::INode(const std::vector<char> &buffer) {
+	INode::INode(const char *buffer) {
 		is_nested = (bool)buffer[0];
-		inode_type = (Type)buffer[1];
+		inode_type = (S2EntryType)buffer[1];
 		num_disk_pointers = u32_from_buffer(&buffer[2]);
 		if (!is_nested) {
 			mode = u16_from_buffer(&buffer[6]);
@@ -63,15 +64,16 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		uint32_t pos = 0;
-		uint64_t const read_upto = is_nested ? 25 : 13;
-		for (uint64_t i = 58; pos < read_upto; i += 40, pos++) {
-			disk_pointers[pos] = {.block = u32_from_buffer(&buffer[i]), .offset = (uint8_t)buffer[i + 4]};
+		uint64_t const read_upto = is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS;
+		for (uint64_t i = 58; pos < read_upto; i += 4, pos++) {
+			disk_pointers[pos] = u32_from_buffer(&buffer[i]);
 		}
 
-		next_pointer = {.block = u32_from_buffer(&buffer[153]), .offset = (uint8_t)buffer[157]};
+		next_pointer = {.block = u32_from_buffer(&buffer[110]), .offset = (uint8_t)buffer[114]};
+		use_next_pointer = buffer[115];
 	}
 
-	void INode::serialize(std::vector<char> &output) const {
+	void INode::serialize(char *output) const {
 		output[0] = is_nested;
 		output[1] = inode_type;
 		u32_to_buffer(num_disk_pointers, &output[2]);
@@ -96,14 +98,30 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		uint32_t pos = 0;
-		uint64_t const read_upto = is_nested ? 25 : 13;
-		for (uint64_t i = 58; pos < read_upto; i += 40, pos++) {
-			u32_to_buffer(disk_pointers[pos].block, &output[i]);
-			output[i + 4] = disk_pointers[pos].offset;
+		uint64_t const read_upto = is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS;
+		for (uint64_t i = 58; pos < read_upto; i += 4, pos++) {
+			u32_to_buffer(disk_pointers[pos], &output[i]);
 		}
 
-		u32_to_buffer(next_pointer.block, &output[153]);
-		u32_to_buffer(next_pointer.offset, &output[157]);
+		u32_to_buffer(next_pointer.block, &output[110]);
+		output[114] = next_pointer.offset;
+		output[115] = use_next_pointer;
+	}
+
+	DirectoryEntry::DirectoryEntry(const char *buffer) {
+		block = u32_from_buffer(&buffer[0]);
+		offset = buffer[4];
+		type = (S2EntryType)buffer[5];
+		name_len = u32_from_buffer(&buffer[6]);
+		name.assign(&buffer[DIR_BLOCK_PLAIN_SIZE], name_len);
+	}
+
+	void DirectoryEntry::serialize(char *output) const {
+		u32_to_buffer(block, &output[0]);
+		output[4] = offset;
+		output[5] = (S2EntryType)type;
+		u32_to_buffer(name_len, &output[6]);
+		memcpy(&output[DIR_BLOCK_PLAIN_SIZE], name.c_str(), name_len);
 	}
 
 	S2FileSystem::S2FileSystem(std::string uri_db_path, bool debug) {
@@ -134,80 +152,338 @@ namespace ROCKSDB_NAMESPACE {
 		// ftl device initialization
 		this->device->init(zns_dev, (device_data *)zns_dev->_private);
 
-		inodes_per_block = (zns_dev->lba_size_bytes / 158) - 1;
+		inodes_per_block = zns_dev->lba_size_bytes / INODE_SIZE;
 
 		// setup super block
 		super_block.block_map_size = zns_dev->lba_size_bytes * 2;
 		super_block.original_inode_reserved = 16;
-		FlushSuperBlock();
+		WriteSuperBlock();
 		block_map_offset = 3;
 
 		// setup inode & data block map
 		this->block_map.resize(super_block.block_map_size);
 		SetBlockType(0, BlockType::Inode); // root directory pointer
-		FlushBlockMap();
+		WriteBlockMap();
 
-		// setup root directory
+		// setup root directory inode
 		INode root;
 		root.is_nested = false;
-		root.inode_type = INode::Type::Directory;
+		root.inode_type = S2EntryType::Directory;
 		root.num_disk_pointers = 1;
-		root.disk_pointers[0].block = super_block.original_inode_reserved;
-		root.disk_pointers[0].offset = super_block.original_inode_reserved;
+		root.disk_pointers[0] = super_block.original_inode_reserved;
 
-		inodes.reserve(inodes_per_block * super_block.original_inode_reserved);
-		inodes.push_back({.inode = root, .block = 0});
-		inode_super_blocks.reserve(16 * inodes_per_block);
-		inode_super_blocks.push_back({.block = 0, .num_inodes = 1});
+		// setup super inode block
+		std::vector<char> output;
+		output.resize(zns_dev->lba_size_bytes);
+		output[0] = 1;
+		root.serialize(&output[1]);
+		WriteBlock(0, output);
 
-		FlushInodeBlock(0);
+		// write directory to data block
+		std::vector<char> dir_buffer;
+		dir_buffer.resize(zns_dev->lba_size_bytes);
+
+		DirectorySuperBlock dir_sb;
+		dir_sb.name_len = 0;
+		dir_sb.num_entries = 0;
+		dir_sb.serialize(&dir_buffer[0]);
+
+		WriteBlock(super_block.original_inode_reserved, dir_buffer);
 	}
 
 	void S2FileSystem::SetBlockType(const uint16_t num, const BlockType block_type) {
-		auto const base_index = (num - 1) / 4;
-		auto const bit_index = ((num - 1) % 4) * 2;
-		block_map[base_index] &= BLOCK_BIT_MASKS[bit_index] & block_type;
+		auto const base_index = num / 4;
+		auto const bit_index = (num % 4) * 2;
+		block_map[base_index] |= BLOCK_BIT_MASKS[bit_index] & block_type;
 	}
 
-	int S2FileSystem::FlushBlockMap() {
-		return zns_udevice_write(zns_dev, zns_dev->lba_size_bytes, &block_map[0], super_block.block_map_size);
+	IOStatus S2FileSystem::WriteBlockMap() {
+		auto ret = zns_udevice_write(zns_dev, zns_dev->lba_size_bytes, &block_map[0], super_block.block_map_size);
+		if (ret != 0) {
+			return IOStatus::IOError();
+		}
+		return IOStatus::OK();
 	}
 
-	int S2FileSystem::FlushSuperBlock() {
+	IOStatus S2FileSystem::WriteSuperBlock() {
 		std::vector<char> output;
 		output.resize(zns_dev->lba_size_bytes);
 		super_block.serialize(output);
-		return zns_udevice_write(zns_dev, 0, &output[0], zns_dev->lba_size_bytes);
+		auto ret = zns_udevice_write(zns_dev, 0, &output[0], zns_dev->lba_size_bytes);
+		if (ret != 0) {
+			return IOStatus::IOError();
+		}
+		return IOStatus::OK();
 	}
 
-	int S2FileSystem::FlushInodeBlock(const uint32_t block) {
-		std::vector<char> output;
-		output.reserve(zns_dev->lba_size_bytes);
+	IOStatus S2FileSystem::WriteBlock(const uint32_t block, const std::vector<char> &data) {
+		auto ret = zns_udevice_write(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
+									 zns_dev->lba_size_bytes);
+		if (ret != 0) {
+			return IOStatus::IOError();
+		}
+		return IOStatus::OK();
+	}
 
-		bool found = false;
-		uint32_t num_inodes = 0;
-		for (const auto &t : inode_super_blocks) {
-			if (t.block == block) {
-				found = true;
-				num_inodes = t.num_inodes;
+	IOStatus S2FileSystem::ReadBlock(const uint32_t block, std::vector<char> &data) {
+		auto ret = zns_udevice_read(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
+									zns_dev->lba_size_bytes);
+		if (ret != 0) {
+			return IOStatus::IOError();
+		}
+		return IOStatus::OK();
+	}
+
+	DirectorySuperBlock::DirectorySuperBlock(const char *buffer) {
+		num_entries = u32_from_buffer(&buffer[0]);
+		name_len = u32_from_buffer(&buffer[4]);
+		name.assign(&buffer[DIR_SUPER_BLOCK_PLAIN_SIZE], name_len);
+	}
+
+	void DirectorySuperBlock::serialize(char *output) const {
+		u32_to_buffer(num_entries, &output[0]);
+		u32_to_buffer(name_len, &output[4]);
+		memcpy(&output[DIR_SUPER_BLOCK_PLAIN_SIZE], name.c_str(), name_len);
+	}
+
+	IOStatus S2FileSystem::ReadINode(const INodePointer ptr, INode &inode) {
+		std::vector<char> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		auto ret = ReadBlock(ptr.block, buffer);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		inode = INode(&buffer[1 + (ptr.offset * INODE_SIZE)]);
+		return IOStatus::OK();
+	}
+
+	IOStatus S2FileSystem::ReadDirectory(INode inode, DirectorySuperBlock &dir_super_block,
+										 std::vector<DirectoryEntry> &directory_entries) {
+		std::vector<char> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		uint32_t j = 0;
+		while (true) {
+			for (uint32_t i = 0; i < inode.num_disk_pointers; i++) {
+				uint32_t buffer_idx = 0;
+				auto ret = ReadBlock(inode.disk_pointers[i], buffer);
+				if (!ret.ok()) {
+					return ret;
+				}
+
+				dir_super_block = DirectorySuperBlock(&buffer[0]);
+				directory_entries.reserve(dir_super_block.num_entries);
+				buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+
+				for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
+					directory_entries.push_back(DirectoryEntry(&buffer[buffer_idx]));
+					buffer_idx += (directory_entries.end() - 1)->name_len + DIR_BLOCK_PLAIN_SIZE;
+				}
+			}
+
+			if (inode.use_next_pointer) {
+				const auto status = ReadINode(inode.next_pointer, inode);
+				if (!status.ok()) {
+					return status;
+				}
+			} else {
 				break;
 			}
 		}
 
-		if (!found) {
-			return FsError::CouldNotFindInode;
-		}
-		output.push_back(num_inodes);
+		return IOStatus::OK();
+	}
 
-		for (const auto &t : inodes) {
-			if (t.block == block) {
-				t.inode.serialize(output);
+	IOStatus S2FileSystem::FindInode(const std::string &path, INode &inode, INodePointer &ptr) {
+		std::string current_path;
+		bool continue_searching = true;
+		ptr.block = 0;
+		ptr.offset = 0;
+		auto status = ReadINode({.block = ptr.block, .offset = ptr.offset}, inode);
+		if (!status.ok()) {
+			return status;
+		}
+
+		while (continue_searching) {
+			continue_searching = false;
+			if (inode.inode_type == S2EntryType::File) {
+				break;
+			}
+
+			std::vector<DirectoryEntry> dir_list;
+			DirectorySuperBlock dir_super_block;
+			status = ReadDirectory(inode, dir_super_block, dir_list);
+			if (!status.ok()) {
+				return status;
+			}
+
+			if (current_path + "/" + dir_super_block.name == path) {
+				return IOStatus::OK();
+			}
+
+			for (const auto &entry : dir_list) {
+				auto const is_path_eq = current_path + "/" + entry.name == path;
+				if (is_path_eq ||
+					(entry.type == S2EntryType::Directory &&
+					 path.find(current_path + "/" + entry.name) != std::string::npos)) {
+					ptr.block = entry.block;
+					ptr.offset = entry.offset;
+					auto status = ReadINode({.block = entry.block, .offset = entry.offset}, inode);
+					if (!status.ok()) {
+						return status;
+					}
+
+					if (is_path_eq) {
+						return IOStatus::OK();
+					} else {
+						current_path += "/" + entry.name;
+						continue_searching = true;
+						break;
+					}
+				}
 			}
 		}
 
-		output.resize(zns_dev->lba_size_bytes);
-		return zns_udevice_write(zns_dev, (block_map_offset + block) * zns_dev->lba_size_bytes, &output[0],
-								 zns_dev->lba_size_bytes);
+		return IOStatus::NotFound();
+	}
+
+	IOStatus S2FileSystem::PlaceNewINodeBlock(const INode inode, INodePointer &ptr) {
+		std::vector<char> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		for (uint32_t i = 0; i < block_map.size(); i++) {
+			for (uint8_t j = 0; j < 4; j++) {
+				auto const block_num = (i * 4) + j;
+				BlockType const block_type = (BlockType)(block_map[i] & BLOCK_BIT_MASKS[j * 2]);
+				switch (block_type) {
+				case BlockType::Inode: {
+					auto ret = ReadBlock(block_num, buffer);
+					if (!ret.ok()) {
+						return ret;
+					}
+
+					if (buffer[0] < inodes_per_block) {
+						buffer[0]++;
+						inode.serialize(&buffer[1 + ((buffer[0] - 1) * INODE_SIZE)]);
+						ret = WriteBlock(block_num, buffer);
+						if (!ret.ok()) {
+							return ret;
+						}
+						ptr = {.block = block_num, .offset = (uint8_t)(buffer[0] - 1)};
+						return IOStatus::OK();
+					}
+					break;
+				}
+				case BlockType::Unused: {
+					SetBlockType(block_num, BlockType::Inode);
+					auto ret = WriteBlockMap();
+					if (!ret.ok()) {
+						return ret;
+					}
+					buffer[0] = 1;
+					inode.serialize(&buffer[1]);
+					ret = WriteBlock(block_num, buffer);
+					if (!ret.ok()) {
+						return ret;
+					}
+					ptr = {.block = block_num, .offset = 0};
+					return IOStatus::OK();
+				}
+				}
+			}
+		}
+		return IOStatus::NoSpace();
+	}
+
+	IOStatus S2FileSystem::CreateFile(const std::string &path, INode &inode) {
+		auto const idx = path.find_last_of("/");
+		if (idx == std::string::npos) {
+			return IOStatus::InvalidArgument();
+		}
+		auto const base_path = path.substr(0, idx + 1);
+		INode base_node;
+		INodePointer ptr;
+		auto const ret = FindInode(base_path, base_node, ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		inode.is_nested = false;
+		inode.inode_type = S2EntryType::File;
+		inode.num_disk_pointers = 0;
+		inode.use_next_pointer = false;
+
+		DirectoryEntry entry;
+		entry.name = path.substr(idx + 1, path.length());
+		entry.name_len = entry.name.length();
+		entry.type = S2EntryType::File;
+		return AddEntryToDirectory(base_node, ptr, inode, entry);
+	}
+
+	IOStatus S2FileSystem::WriteINode(const INode inode, const INodePointer ptr) {
+		std::vector<char> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		auto ret = ReadBlock(ptr.block, buffer);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		inode.serialize(&buffer[1 + (ptr.offset * INODE_SIZE)]);
+		return WriteBlock(ptr.block, buffer);
+	}
+
+	IOStatus S2FileSystem::AddEntryToDirectory(const INode base_node, const INodePointer ptr, const INode node,
+											   DirectoryEntry entry) {
+		INodePointer new_inode_ptr;
+		auto ret = PlaceNewINodeBlock(node, new_inode_ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		std::vector<char> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		uint32_t j = 0;
+		entry.block = new_inode_ptr.block;
+		entry.offset = new_inode_ptr.offset;
+
+		auto const space_needed = DIR_BLOCK_PLAIN_SIZE + entry.name_len;
+		DirectorySuperBlock dir_super_block;
+		INode use_node = base_node;
+		while (true) {
+			if (use_node.use_next_pointer) {
+				const auto status = ReadINode(use_node.next_pointer, use_node);
+				if (!status.ok()) {
+					return status;
+				}
+				continue;
+			}
+
+			uint32_t buffer_idx = 0;
+			auto ret = ReadBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], buffer);
+			if (!ret.ok()) {
+				return ret;
+			}
+
+			dir_super_block = DirectorySuperBlock(&buffer[0]);
+			buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+
+			for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
+				buffer_idx += DirectoryEntry(&buffer[buffer_idx]).name_len + DIR_BLOCK_PLAIN_SIZE;
+			}
+
+			if (buffer_idx + space_needed > zns_dev->lba_size_bytes) {
+				// TODO: create another disk pointer or inode as needed
+			} else {
+				entry.serialize(&buffer[buffer_idx]);
+				dir_super_block.num_entries++;
+				dir_super_block.serialize(&buffer[0]);
+				auto ret = WriteBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], buffer);
+				if (!ret.ok()) {
+					return ret;
+				}
+				break;
+			}
+		}
+		return IOStatus::OK();
 	}
 
 	S2FileSystem::~S2FileSystem() {}
@@ -221,7 +497,20 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewSequentialFile(const std::string &fname, const FileOptions &file_opts,
 											 std::unique_ptr<FSSequentialFile> *result,
 											 __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		INode inode;
+		INodePointer ptr;
+		auto ret = FindInode(fname, inode, ptr);
+		if (ret.code() == Status::Code::kNotFound) {
+			ret = CreateFile(fname, inode);
+			if (!ret.ok()) {
+				return ret;
+			}
+		} else if (!ret.ok()) {
+			return IOStatus::NotFound();
+		}
+
+		result->reset(new SeqFile(inode, zns_dev));
+		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::IsDirectory(const std::string &, const IOOptions &options, bool *is_dir, IODebugContext *) {

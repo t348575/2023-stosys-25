@@ -34,6 +34,11 @@ SOFTWARE.
 
 namespace ROCKSDB_NAMESPACE {
 	const static uint8_t BLOCK_BIT_MASKS[4] = {0b00000011, 0b00001100, 0b00110000, 0b11000000};
+	const static uint32_t INODE_SIZE = 116;
+	const static uint32_t NUM_DISK_POINTERS = 13;
+	const static uint32_t NUM_NESTED_DISK_POINTERS = 27;
+	const static uint32_t DIR_BLOCK_PLAIN_SIZE = 10;
+	const static uint32_t DIR_SUPER_BLOCK_PLAIN_SIZE = 8;
 
 	class SuperBlock {
 	public:
@@ -44,55 +49,58 @@ namespace ROCKSDB_NAMESPACE {
 		uint16_t original_inode_reserved;
 	};
 
-	struct INodeSuperBlock {
-		uint32_t block;
-		uint8_t num_inodes;
-	};
-
 	struct INodePointer {
 		uint32_t block;
 		uint8_t offset;
 	};
 
+	enum S2EntryType : uint8_t { File = 0, Directory };
+
 	class INode {
 	public:
-		enum Type : uint8_t { File = 0, Directory };
-
 		INode() = default;
-		INode(const std::vector<char> &buffer);
-		void serialize(std::vector<char> &output) const;
+		INode(const char *buffer);
+		void serialize(char *output) const;
 
 		bool is_nested;
-		Type inode_type;
+		S2EntryType inode_type;
 		uint32_t num_disk_pointers;
 		uint16_t mode, uid, gid, links_count;
 		uint32_t size, time, ctime, mtime, dtime;
 		uint32_t blocks, flags, osd1;
 		uint32_t generation, file_acl, dir_acl;
-		INodePointer disk_pointers[25]; // or 13 if normal size
+		uint32_t disk_pointers[27]; // or 13 if normal size
 		INodePointer next_pointer;
+		bool use_next_pointer = false;
 	};
 
-	struct INodeMap {
-		INode inode;
-		uint32_t block;
+	class DirectorySuperBlock {
+	public:
+		DirectorySuperBlock() = default;
+		DirectorySuperBlock(const char *buffer);
+		void serialize(char *output) const;
+
+		uint32_t num_entries;
+		uint32_t name_len;
+		std::string name;
 	};
 
 	class DirectoryEntry {
 	public:
+		DirectoryEntry() = default;
+		DirectoryEntry(const char *buffer);
+		void serialize(char *output) const;
+
 		uint32_t block;
 		uint8_t offset;
+		S2EntryType type;
 		uint32_t name_len;
 		std::string name;
-
-		DirectoryEntry() = default;
-		DirectoryEntry(const std::vector<char> &buffer);
-		void serialize(std::vector<char> &output) const;
 	};
 
 	class S2FileSystem : public FileSystem {
 	public:
-		enum FsError : int { CouldNotFindInode = -1 };
+		enum FsError : int { None = 0, CouldNotFindInode = -1 };
 		enum BlockType : uint8_t { Unused = 0, Inode, Data };
 
 		// No copying allowed
@@ -186,10 +194,21 @@ namespace ROCKSDB_NAMESPACE {
 
 		// page number, 1 indexed
 		void SetBlockType(const uint16_t num, const BlockType block_type);
-		int FlushBlockMap();
-		int FlushSuperBlock();
-		int FlushInodeBlock(const uint32_t block);
-		uint32_t AddInodeBlock(const INode node);
+		IOStatus WriteBlockMap();
+		IOStatus WriteSuperBlock();
+		IOStatus WriteBlock(const uint32_t block, const std::vector<char> &data);
+		IOStatus ReadBlock(const uint32_t block, std::vector<char> &data);
+
+		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
+		IOStatus ReadINode(const INodePointer ptr, INode &inode);
+		IOStatus WriteINode(const INode inode, const INodePointer ptr);
+		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
+
+		IOStatus CreateFile(const std::string &path, INode &inode);
+		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
+							   std::vector<DirectoryEntry> &directory);
+		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer ptr, const INode node,
+									 DirectoryEntry entry);
 
 	private:
 		struct user_zns_device *zns_dev;
@@ -198,8 +217,6 @@ namespace ROCKSDB_NAMESPACE {
 
 		// indexes offset after super block and block_map
 		std::vector<char> block_map;
-		std::vector<struct INodeMap> inodes;
-		std::vector<struct INodeSuperBlock> inode_super_blocks;
 		uint32_t block_map_offset;
 		uint32_t inodes_per_block;
 		SuperBlock super_block;

@@ -33,6 +33,7 @@ set(CMAKE_INSTALL_PREFIX "/home/$ENV{USER}/local/")
 
 # Project configuration specific parameters
 set(STOSYS_M45 ON)
+set(STOSYS_FS_DEBUG ON)
 set(STOSYS_CMAKE_DEBUG OFF)
 set(STOSYS_ASAN OFF)
 
@@ -139,12 +140,20 @@ if(STOSYS_M45)
     find_package(BZip2)
     # this is where librocksdb is 
     link_directories(${CMAKE_LIBRARY_PATH})
-    
-    add_executable(m45 src/m45-rocksdb/m45_main.cc 
-    src/m45-rocksdb/rocksdb_s2fs.cc 
-    src/m45-rocksdb/DummyFSForward.cc src/m45-rocksdb/DummyFSForward.h 
-    src/m45-rocksdb/MyRocksContext.h 
-    src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h)
+
+    if (STOSYS_FS_DEBUG)
+        add_executable(m45 src/m45-rocksdb/debug-m45_main.cc 
+        src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
+        src/m45-rocksdb/FSImpls.cc src/m45-rocksdb/FSImpls.h)
+    else()
+        add_executable(m45 src/m45-rocksdb/m45_main.cc 
+        src/m45-rocksdb/rocksdb_s2fs.cc 
+        src/m45-rocksdb/DummyFSForward.cc src/m45-rocksdb/DummyFSForward.h 
+        src/m45-rocksdb/MyRocksContext.h 
+        src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
+        src/m45-rocksdb/FSImpls.cc src/m45-rocksdb/FSImpls.h)
+    endif()
+
     # see all the defined variables here: https://cmake.org/cmake/help/latest/module/FindPkgConfig.html
     add_definitions (${NVME_CFLAGS} ${ROCKSDB_CFLAGS}  ${ROCKSDB_STATIC_CFLAGS} ${ROCKSDB_CFLAGS_OTHER})
     target_link_libraries(m45 pthread stosys ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})    

@@ -1,22 +1,17 @@
 #!/bin/bash
 
-files=("zns_device.cpp" "zns_device.h" "ftl.cpp" "ftl.h")
+files=("m23-ftl/zns_device" "m23-ftl/ftl" "common/utils")
 for item in "${files[@]}"
 do
     echo "formatting $item"
-    clang-format -i --style=file src/m23-ftl/$item
+    clang-format -i --style=file src/$item.cpp
+    clang-format -i --style=file src/$item.h
 done
 
-files=("S2FileSystem.cc" "S2FileSystem.h")
+files=("S2FileSystem" "FSImpls")
 for item in "${files[@]}"
 do
     echo "formatting $item"
-    clang-format -i --style=file src/m45-rocksdb/$item
-done
-
-files=("utils.cpp" "utils.h")
-for item in "${files[@]}"
-do
-    echo "formatting $item"
-    clang-format -i --style=file src/common/$item
+    clang-format -i --style=file src/m45-rocksdb/$item.cc
+    clang-format -i --style=file src/m45-rocksdb/$item.h
 done
