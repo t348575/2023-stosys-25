@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef FS_IMPL_H
-#define FS_IMPL_H
+#ifndef ROCKS_CLASSES_H
+#define ROCKS_CLASSES_H
 
 #include <rocksdb/file_system.h>
 
@@ -24,6 +24,16 @@ namespace ROCKSDB_NAMESPACE {
 		uint32_t disk_ptr = 0;
 		std::vector<char> buffer;
 		struct user_zns_device *zns_dev;
+	};
+
+	class FSDir : public FSDirectory {
+	public:
+		FSDir() = default;
+		IOStatus Fsync(const IOOptions &options, IODebugContext *dbg) {
+			UNUSED(options);
+			UNUSED(dbg);
+			return IOStatus::OK();
+		}
 	};
 } // namespace ROCKSDB_NAMESPACE
 

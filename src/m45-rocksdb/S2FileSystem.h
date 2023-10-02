@@ -43,8 +43,8 @@ namespace ROCKSDB_NAMESPACE {
 	class SuperBlock {
 	public:
 		SuperBlock() = default;
-		SuperBlock(const std::vector<char> &buffer);
-		void serialize(std::vector<char> &output);
+		SuperBlock(const std::vector<uint8_t> &buffer);
+		void serialize(std::vector<uint8_t> &output);
 		uint32_t block_map_size;
 		uint16_t original_inode_reserved;
 	};
@@ -59,8 +59,8 @@ namespace ROCKSDB_NAMESPACE {
 	class INode {
 	public:
 		INode() = default;
-		INode(const char *buffer);
-		void serialize(char *output) const;
+		INode(const uint8_t *buffer);
+		void serialize(uint8_t *output) const;
 
 		bool is_nested;
 		S2EntryType inode_type;
@@ -77,8 +77,8 @@ namespace ROCKSDB_NAMESPACE {
 	class DirectorySuperBlock {
 	public:
 		DirectorySuperBlock() = default;
-		DirectorySuperBlock(const char *buffer);
-		void serialize(char *output) const;
+		DirectorySuperBlock(const uint8_t *buffer);
+		void serialize(uint8_t *output) const;
 
 		uint32_t num_entries;
 		uint32_t name_len;
@@ -88,14 +88,19 @@ namespace ROCKSDB_NAMESPACE {
 	class DirectoryEntry {
 	public:
 		DirectoryEntry() = default;
-		DirectoryEntry(const char *buffer);
-		void serialize(char *output) const;
+		DirectoryEntry(const uint8_t *buffer);
+		void serialize(uint8_t *output) const;
 
 		uint32_t block;
 		uint8_t offset;
 		S2EntryType type;
 		uint32_t name_len;
 		std::string name;
+	};
+
+	struct FindAllNodesResult {
+		std::vector<INodePointer> inodes;
+		std::vector<uint32_t> data_nodes;
 	};
 
 	class S2FileSystem : public FileSystem {
@@ -194,20 +199,25 @@ namespace ROCKSDB_NAMESPACE {
 
 		// page number, 1 indexed
 		void SetBlockType(const uint16_t num, const BlockType block_type);
+		BlockType GetBlockType(const uint32_t num) const;
 		IOStatus WriteBlockMap();
 		IOStatus WriteSuperBlock();
-		IOStatus WriteBlock(const uint32_t block, const std::vector<char> &data);
-		IOStatus ReadBlock(const uint32_t block, std::vector<char> &data);
+		IOStatus WriteBlock(const uint32_t block, const std::vector<uint8_t> &data);
+		IOStatus ReadBlock(const uint32_t block, uint8_t *data);
 
 		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
+		IOStatus PlaceNewDataBlock(uint32_t &block_num);
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
-		IOStatus WriteINode(const INode inode, const INodePointer ptr);
+		IOStatus WriteINode(const INode inode, const INodePointer ptr, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
+		IOStatus FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive);
 
-		IOStatus CreateFile(const std::string &path, INode &inode);
+		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode);
+		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
+		IOStatus WriteEntireFile(const INode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
 							   std::vector<DirectoryEntry> &directory);
-		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer ptr, const INode node,
+		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, INode node,
 									 DirectoryEntry entry);
 
 	private:
@@ -216,7 +226,7 @@ namespace ROCKSDB_NAMESPACE {
 		const std::string _fs_delimiter = "/";
 
 		// indexes offset after super block and block_map
-		std::vector<char> block_map;
+		std::vector<uint8_t> block_map;
 		uint32_t block_map_offset;
 		uint32_t inodes_per_block;
 		SuperBlock super_block;

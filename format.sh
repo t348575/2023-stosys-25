@@ -8,7 +8,7 @@ do
     clang-format -i --style=file src/$item.h
 done
 
-files=("S2FileSystem" "FSImpls")
+files=("S2FileSystem" "RocksClasses")
 for item in "${files[@]}"
 do
     echo "formatting $item"

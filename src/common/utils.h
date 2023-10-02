@@ -35,11 +35,11 @@ void match_pattern(char *data, uint64_t len);
 void write_pattern_with_start(char *data, uint64_t len, uint64_t s);
 void match_pattern_with_start(char *data, uint64_t len, uint64_t s);
 
-uint32_t u32_from_buffer(const char *buffer);
-uint16_t u16_from_buffer(const char *buffer);
+uint32_t u32_from_buffer(const uint8_t *buffer);
+uint16_t u16_from_buffer(const uint8_t *buffer);
 
-void u32_to_buffer(const uint32_t value, char *output);
-void u16_to_buffer(const uint16_t value, char *output);
+void u32_to_buffer(const uint32_t value, uint8_t *output);
+void u16_to_buffer(const uint16_t value, uint8_t *output);
 }
 
 uint64_t microseconds_since_epoch();
