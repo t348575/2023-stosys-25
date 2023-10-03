@@ -265,7 +265,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::RenameFile(const std::string &src, const std::string &target,
                                         const IOOptions &options,
                                         __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << src << " " << target << " " << std::endl;
         return this->_private_fs->RenameFile(src, target, options, dbg);
     }
 

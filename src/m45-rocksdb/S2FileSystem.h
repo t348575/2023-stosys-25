@@ -62,16 +62,21 @@ namespace ROCKSDB_NAMESPACE {
 		INode(const uint8_t *buffer);
 		void serialize(uint8_t *output) const;
 
-		bool is_nested;
+		bool is_nested = false;
 		S2EntryType inode_type;
-		uint32_t num_disk_pointers;
+		uint32_t num_disk_pointers = 0;
 		uint16_t mode, uid, gid, links_count;
-		uint32_t size, time, ctime, mtime, dtime;
+		uint32_t size = 0, time, ctime, mtime, dtime;
 		uint32_t blocks, flags, osd1;
 		uint32_t generation, file_acl, dir_acl;
 		uint32_t disk_pointers[27]; // or 13 if normal size
 		INodePointer next_pointer;
 		bool use_next_pointer = false;
+	};
+
+	struct RichInode {
+		INode inode;
+		INodePointer ptr;
 	};
 
 	class DirectorySuperBlock {
@@ -80,7 +85,7 @@ namespace ROCKSDB_NAMESPACE {
 		DirectorySuperBlock(const uint8_t *buffer);
 		void serialize(uint8_t *output) const;
 
-		uint32_t num_entries;
+		uint32_t num_entries = 0;
 		uint32_t name_len;
 		std::string name;
 	};
@@ -197,12 +202,12 @@ namespace ROCKSDB_NAMESPACE {
 								   std::unique_ptr<FSWritableFile> *result,
 								   __attribute__((unused)) IODebugContext *dbg);
 
-		// page number, 1 indexed
+		static std::string SanitizePath(const std::string input);
 		void SetBlockType(const uint16_t num, const BlockType block_type);
 		BlockType GetBlockType(const uint32_t num) const;
 		IOStatus WriteBlockMap();
 		IOStatus WriteSuperBlock();
-		IOStatus WriteBlock(const uint32_t block, const std::vector<uint8_t> &data);
+		IOStatus WriteBlock(const uint32_t block, const uint8_t *data);
 		IOStatus ReadBlock(const uint32_t block, uint8_t *data);
 
 		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
@@ -211,14 +216,15 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus WriteINode(const INode inode, const INodePointer ptr, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
 		IOStatus FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive);
+		IOStatus AddDiskPointer(RichInode **inode);
 
-		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode);
+		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
 		IOStatus WriteEntireFile(const INode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
 							   std::vector<DirectoryEntry> &directory);
-		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, INode node,
-									 DirectoryEntry entry);
+		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
+									 INode &node, INodePointer &ptr);
 
 	private:
 		struct user_zns_device *zns_dev;

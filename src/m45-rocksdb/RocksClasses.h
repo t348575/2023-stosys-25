@@ -8,13 +8,11 @@
 #include "S2FileSystem.h"
 
 namespace ROCKSDB_NAMESPACE {
-	class SeqFile : public FSSequentialFile {
+	class RocksSequentialFile : public FSSequentialFile {
 	public:
-		SeqFile(const INode inode, struct user_zns_device *zns_dev);
-		~SeqFile() = default;
+		RocksSequentialFile(const INode inode, const struct user_zns_device *zns_dev, S2FileSystem *fs);
 
 		IOStatus Read(size_t n, const IOOptions &options, Slice *result, char *scratch, IODebugContext *dbg);
-
 		IOStatus Skip(uint64_t n);
 
 	private:
@@ -22,18 +20,37 @@ namespace ROCKSDB_NAMESPACE {
 		INode curr_inode;
 		uint32_t ptr = 0;
 		uint32_t disk_ptr = 0;
-		std::vector<char> buffer;
-		struct user_zns_device *zns_dev;
+		S2FileSystem *fs;
+		const struct user_zns_device *zns_dev;
 	};
 
-	class FSDir : public FSDirectory {
+	class RocksDirectory : public FSDirectory {
 	public:
-		FSDir() = default;
+		RocksDirectory() = default;
+
 		IOStatus Fsync(const IOOptions &options, IODebugContext *dbg) {
 			UNUSED(options);
 			UNUSED(dbg);
 			return IOStatus::OK();
 		}
+	};
+
+	class RocksWriteableFile : public FSWritableFile {
+	public:
+		RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev);
+		~RocksWriteableFile();
+
+		IOStatus Append(const Slice &data, const IOOptions &options, IODebugContext *dbg);
+		IOStatus Close(const IOOptions &options, IODebugContext *dbg);
+		IOStatus Flush(const IOOptions &options, IODebugContext *dbg);
+		IOStatus Sync(const IOOptions &options, IODebugContext *dbg);
+
+	private:
+		RichInode root_inode, *current_inode;
+		std::vector<uint8_t> buffer;
+		S2FileSystem *fs;
+		uint64_t current_inode_address;
+		struct user_zns_device *zns_dev;
 	};
 } // namespace ROCKSDB_NAMESPACE
 
