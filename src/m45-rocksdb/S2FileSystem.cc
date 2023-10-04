@@ -125,7 +125,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	S2FileSystem::S2FileSystem(std::string uri_db_path, bool debug) {
-		FileSystem::Default();
+		UNUSED(debug);
 		std::string sdelimiter = ":";
 		std::string edelimiter = "://";
 		this->_uri = uri_db_path;
@@ -134,7 +134,7 @@ namespace ROCKSDB_NAMESPACE {
 				uri_db_path.substr(uri_db_path.find(sdelimiter) + sdelimiter.size(),
 								   uri_db_path.find(edelimiter) - (uri_db_path.find(sdelimiter) + sdelimiter.size()));
 		// make sure to setup these parameters properly and check the forced reset flag for M5
-		params.name = (char*)device.c_str();
+		params.name = (char *)device.c_str();
 		params.log_zones = 32;
 		params.gc_wmark = 1;
 		params.force_reset = false;
@@ -195,6 +195,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	void S2FileSystem::SetBlockType(const uint16_t num, const BlockType block_type) {
+		block_map[num / 4] &= RESET_BIT_MASKS[num % 4];
 		block_map[num / 4] |= BLOCK_BIT_MASKS[num % 4] & block_type << (num % 4) * 2;
 	}
 
@@ -273,18 +274,11 @@ namespace ROCKSDB_NAMESPACE {
 		buffer_size = buffer.size();
 
 		uint32_t j = 0, buffer_idx = 0;
-		while (true) {
-			dir_super_block = DirectorySuperBlock(&buffer[0]);
-			buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
-
-			for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
-				directory_entries.push_back(DirectoryEntry(&buffer[buffer_idx]));
-				buffer_idx += (directory_entries.end() - 1)->name_len + DIR_BLOCK_PLAIN_SIZE;
-			}
-
-			if (buffer_idx + zns_dev->lba_size_bytes >= buffer.size()) {
-				break;
-			}
+		dir_super_block = DirectorySuperBlock(&buffer[0]);
+		buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+		for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
+			directory_entries.push_back(DirectoryEntry(&buffer[buffer_idx]));
+			buffer_idx += directory_entries.back().name_len + DIR_BLOCK_PLAIN_SIZE;
 		}
 
 		return IOStatus::OK();
@@ -309,7 +303,8 @@ namespace ROCKSDB_NAMESPACE {
 
 			std::vector<DirectoryEntry> dir_list;
 			DirectorySuperBlock dir_super_block;
-			status = ReadDirectory(inode, dir_super_block, dir_list);
+			uint32_t temp;
+			status = ReadDirectory(inode, dir_super_block, dir_list, temp);
 			if (!status.ok()) {
 				return status;
 			}
@@ -358,7 +353,7 @@ namespace ROCKSDB_NAMESPACE {
 					}
 
 					if (buffer[0] < inodes_per_block) {
-						ret = WriteINode(inode, {.block = block_num, .offset = buffer[0]}, true);
+						ret = WriteINode({inode, {.block = block_num, .offset = buffer[0]}}, true);
 						if (!ret.ok()) {
 							return ret;
 						}
@@ -446,10 +441,10 @@ namespace ROCKSDB_NAMESPACE {
 		return AddEntryToDirectory(base_node, base_ptr, entry, inode, ptr);
 	}
 
-	IOStatus S2FileSystem::WriteINode(const INode inode, const INodePointer ptr, bool increment_count) {
+	IOStatus S2FileSystem::WriteINode(const RichInode ri, bool increment_count) {
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
-		auto ret = ReadBlock(ptr.block, &buffer[0]);
+		auto ret = ReadBlock(ri.ptr.block, &buffer[0]);
 		if (!ret.ok()) {
 			return ret;
 		}
@@ -458,15 +453,13 @@ namespace ROCKSDB_NAMESPACE {
 			buffer[0]++;
 		}
 
-		inode.serialize(&buffer[1 + (ptr.offset * INODE_SIZE)]);
-		return WriteBlock(ptr.block, &buffer[0]);
+		ri.inode.serialize(&buffer[1 + (ri.ptr.offset * INODE_SIZE)]);
+		return WriteBlock(ri.ptr.block, &buffer[0]);
 	}
 
 	IOStatus S2FileSystem::ReadEntireFile(const INode inode, std::vector<uint8_t> &output) {
-		//TODO: fix output buffer size
+		output.resize(closest_upper_multiple(zns_dev->lba_size_bytes, inode.size));
 		INode use_inode = inode;
-		output.resize(zns_dev->lba_size_bytes);
-		DirectorySuperBlock dir_super_block;
 		uint32_t buffer_idx = 0;
 		while (true) {
 			// TODO: optimize to sequential read later
@@ -488,6 +481,7 @@ namespace ROCKSDB_NAMESPACE {
 			}
 		}
 
+		output.resize(inode.size);
 		return IOStatus::OK();
 	}
 
@@ -514,6 +508,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 											   INode &node, INodePointer &ptr) {
+		// TODO: remove dsb from every page
 		if (entry.type == S2EntryType::Directory) {
 			auto ret = PlaceNewDataBlock(node.disk_pointers[0]);
 			if (!ret.ok()) {
@@ -542,60 +537,76 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		std::vector<uint8_t> buffer;
-		buffer.resize(zns_dev->lba_size_bytes);
-		uint32_t j = 0;
 		entry.block = ptr.block;
 		entry.offset = ptr.offset;
 
-		auto const space_needed = DIR_BLOCK_PLAIN_SIZE + entry.name_len;
 		DirectorySuperBlock dir_super_block;
-		INode use_node = base_node;
-		INode base_node_c = base_node;
-		while (true) {
-			if (use_node.use_next_pointer) {
-				const auto status = ReadINode(use_node.next_pointer, use_node);
-				if (!status.ok()) {
-					return status;
-				}
-				continue;
-			}
-
-			uint32_t buffer_idx = 0;
-			auto ret = ReadBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
-			if (!ret.ok()) {
-				return ret;
-			}
-
-			dir_super_block = DirectorySuperBlock(&buffer[0]);
-			buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
-
-			for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
-				buffer_idx += DirectoryEntry(&buffer[buffer_idx]).name_len + DIR_BLOCK_PLAIN_SIZE;
-			}
-
-			base_node_c.size += space_needed;
-			ret = WriteINode(base_node_c, base_ptr, false);
-			if (!ret.ok()) {
-				return ret;
-			}
-
-			if (buffer_idx + space_needed > zns_dev->lba_size_bytes) {
-				// TODO: create another disk pointer or inode as needed
-			} else {
-				entry.serialize(&buffer[buffer_idx]);
-				dir_super_block.num_entries++;
-				dir_super_block.serialize(&buffer[0]);
-				auto ret = WriteBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
-				if (!ret.ok()) {
-					return ret;
-				}
-				break;
-			}
+		std::vector<DirectoryEntry> dir_list;
+		uint32_t buffer_size;
+		ret = ReadDirectory(base_node, dir_super_block, dir_list, buffer_size);
+		if (!ret.ok()) {
+			return ret;
 		}
+		dir_list.push_back(entry);
+
+		buffer.resize(buffer_size + DIR_BLOCK_PLAIN_SIZE + entry.name_len);
+		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+		dir_super_block.num_entries++;
+		dir_super_block.serialize(&buffer[0]);
+
+		for (auto &t : dir_list) {
+			t.serialize(&buffer[buffer_index]);
+			buffer_index += DIR_BLOCK_PLAIN_SIZE + t.name_len;
+		}
+
+		return WriteEntireFile({base_node, base_ptr}, buffer);
+		// INode use_node = base_node;
+		// INode base_node_c = base_node;
+		// while (true) {
+		// 	if (use_node.use_next_pointer) {
+		// 		const auto status = ReadINode(use_node.next_pointer, use_node);
+		// 		if (!status.ok()) {
+		// 			return status;
+		// 		}
+		// 		continue;
+		// 	}
+
+		// 	uint32_t buffer_idx = 0;
+		// 	auto ret = ReadBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
+		// 	if (!ret.ok()) {
+		// 		return ret;
+		// 	}
+
+		// 	dir_super_block = DirectorySuperBlock(&buffer[0]);
+		// 	buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+
+		// 	for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
+		// 		buffer_idx += DirectoryEntry(&buffer[buffer_idx]).name_len + DIR_BLOCK_PLAIN_SIZE;
+		// 	}
+
+		// 	base_node_c.size += space_needed;
+		// 	ret = WriteINode({base_node_c, base_ptr}, false);
+		// 	if (!ret.ok()) {
+		// 		return ret;
+		// 	}
+
+		// 	if (buffer_idx + space_needed > zns_dev->lba_size_bytes) {
+		// 		// TODO: create another disk pointer or inode as needed
+		// 	}
+
+		// 	entry.serialize(&buffer[buffer_idx]);
+		// 	dir_super_block.num_entries++;
+		// 	dir_super_block.serialize(&buffer[0]);
+		// 	ret = WriteBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
+		// 	if (!ret.ok()) {
+		// 		return ret;
+		// 	}
+		// 	break;
+		// }
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::AddDiskPointer(RichInode **ri_node) {
+	IOStatus S2FileSystem::AddDiskPointer(RichInode **ri_node, std::function<void()> clear_callback) {
 		if ((!(*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
 			((*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
 			RichInode *new_inode = new RichInode;
@@ -613,10 +624,11 @@ namespace ROCKSDB_NAMESPACE {
 
 			(*ri_node)->inode.next_pointer = new_inode->ptr;
 			(*ri_node)->inode.use_next_pointer = true;
-			ret = WriteINode((*ri_node)->inode, (*ri_node)->ptr, false);
+			ret = WriteINode({(*ri_node)->inode, (*ri_node)->ptr}, false);
 			if (!ret.ok()) {
 				return ret;
 			}
+			clear_callback();
 			*ri_node = new_inode;
 			return IOStatus::OK();
 		}
@@ -626,7 +638,27 @@ namespace ROCKSDB_NAMESPACE {
 		if (!ret.ok()) {
 			return ret;
 		}
-		return WriteINode((*ri_node)->inode, (*ri_node)->ptr, false);
+		return WriteINode({(*ri_node)->inode, (*ri_node)->ptr}, false);
+	}
+
+	IOStatus S2FileSystem::RemoveInode(const INodePointer ptr) {
+		std::vector<uint8_t> buffer;
+		buffer.resize(zns_dev->lba_size_bytes);
+		auto ret = ReadBlock(ptr.block, &buffer[0]);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		uint8_t num_inodes = buffer[0];
+		for (uint32_t i = 0; i < num_inodes; i++) {
+			if (i < ptr.offset) {
+				continue;
+			}
+
+			memcpy(&buffer[1 + (ptr.offset * INODE_SIZE)], &buffer[1 + (i * INODE_SIZE)], INODE_SIZE);
+		}
+		buffer[0]--;
+		return WriteBlock(ptr.block, &buffer[0]);
 	}
 
 	S2FileSystem::~S2FileSystem() {}
@@ -871,13 +903,13 @@ namespace ROCKSDB_NAMESPACE {
 			return ret;
 		}
 
-		auto ret = FindInode(target, inode, ptr);
+		ret = FindInode(target, inode, ptr);
 
 		if (ret.code() != Status::Code::kNotFound) {
 			if (ret.ok()) {
 				return IOStatus::InvalidArgument();
 			}
-			
+
 			return ret;
 		}
 
@@ -892,7 +924,7 @@ namespace ROCKSDB_NAMESPACE {
 		if (base_path.length() > 1 && base_path.back() == '/') {
 			base_path.pop_back();
 		}
-		
+
 		ret = FindInode(base_path, inode, ptr);
 
 		if (!ret.ok()) {
@@ -909,14 +941,14 @@ namespace ROCKSDB_NAMESPACE {
 		if (src_name.back() == '/') {
 			src_name.pop_back();
 		}
-		src_name = src_name.substr(src_name.find_last_of('/'));
+		src_name = src_name.substr(src_name.find_last_of('/') + 1);
 
 		std::string target_name = target;
 		if (target_name.back() == '/') {
 			target_name.pop_back();
 		}
-		target_name = target_name.substr(target_name.find_last_of('/'));
-		for (auto &entry:directory_entry) {
+		target_name = target_name.substr(target_name.find_last_of('/') + 1);
+		for (auto &entry : directory_entry) {
 			if (entry.name == src_name) {
 				entry.name = target_name;
 				entry.name_len = target_name.length();
@@ -933,7 +965,7 @@ namespace ROCKSDB_NAMESPACE {
 		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + directory_super_block.name_len;
 		directory_super_block.serialize(&buffer[0]);
 
-		for(auto &entry:directory_entry){
+		for (auto &entry : directory_entry) {
 			entry.serialize(&buffer[buffer_index]);
 			buffer_index += DIR_BLOCK_PLAIN_SIZE + entry.name_len;
 		}
@@ -942,16 +974,13 @@ namespace ROCKSDB_NAMESPACE {
 		return WriteEntireFile({inode, ptr}, buffer);
 	}
 
-	IOStatus  S2FileSystem::WriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer) {
-		uint32_t disk_pointer_nr = closest_upper_multiple(zns_dev->lba_size_bytes, buffer.size());
-
-		uint32_t current_disk_pointer_nr = closest_upper_multiple(zns_dev->lba_size_bytes, inode.inode.size);
+	IOStatus S2FileSystem::WriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer) {
+		uint32_t num_to_delete =
+				closest_upper_multiple(zns_dev->lba_size_bytes, inode.inode.size) / zns_dev->lba_size_bytes;
 
 		INode inode_current = inode.inode;
 		std::vector<RichInode> traversed_inode_vector;
 		traversed_inode_vector.push_back(inode);
-		uint32_t occurace_counter = 0;
-		uint32_t num_to_delete = current_disk_pointer_nr;
 
 		while (inode_current.use_next_pointer) {
 			INode inode_tmp;
@@ -960,54 +989,70 @@ namespace ROCKSDB_NAMESPACE {
 			if (!ret.ok()) {
 				return ret;
 			}
-			
+
 			traversed_inode_vector.push_back({inode_tmp, inode_current.next_pointer});
 		}
-		
-		while (traversed_inode_vector.size() > 0 && num_to_delete > 0){ //remove the inode
-			uint32_t nr_for_delete = std::min(num_to_delete, traversed_inode_vector.back().inode.num_disk_pointers); //how many to delete from the current inode
+
+		while (traversed_inode_vector.size() > 0 && num_to_delete > 0) { // remove the inode
+			uint32_t nr_for_delete = std::min(
+					num_to_delete,
+					traversed_inode_vector.back().inode.num_disk_pointers); // how many to delete from the current inode
 			num_to_delete -= nr_for_delete;
 			traversed_inode_vector.back().inode.num_disk_pointers -= nr_for_delete;
 
-			for(int i = 0; i < nr_for_delete; i++) {
+			for (uint32_t i = 0; i < nr_for_delete; i++) {
 				SetBlockType(traversed_inode_vector.back().inode.disk_pointers[i], BlockType::Unused);
 			}
 
-			if (traversed_inode_vector.back().inode.num_disk_pointers == 0){
-				IOStatus ret = RemoveInode(traversed_inode_vector.back().ptr); 
-				if (!ret.ok()){
-					return ret;
-				}	
-
-				if(traversed_inode_vector.size() < 2) {
+			if (traversed_inode_vector.back().inode.num_disk_pointers == 0) {
+				if (traversed_inode_vector.size() < 2) {
+					auto ret = WriteINode(traversed_inode_vector.back(), false);
+					if (!ret.ok()) {
+						return ret;
+					}
 					traversed_inode_vector.pop_back();
 					continue;
 				}
 
+				IOStatus ret = RemoveInode(traversed_inode_vector.back().ptr);
+				if (!ret.ok()) {
+					return ret;
+				}
+
 				traversed_inode_vector[traversed_inode_vector.size() - 1].inode.use_next_pointer = false;
 
-				IOStatus ret = WriteINode(traversed_inode_vector[traversed_inode_vector.size() - 1], false);
-				if(!ret.ok()) {
+				ret = WriteINode(traversed_inode_vector[traversed_inode_vector.size() - 1], false);
+				if (!ret.ok()) {
 					return ret;
 				}
 			} else {
-				IOStatus ret = WriteINode(traversed_inode_vector.back(), false);
+				auto ret = WriteINode(traversed_inode_vector.back(), false);
 
-				if(!ret.ok()) {
+				if (!ret.ok()) {
 					return ret;
 				}
 			}
 			traversed_inode_vector.pop_back();
 		}
-		IOStatus ret = WriteBlockMap();
-
-		if(!ret.ok()) {
+		auto ret = WriteBlockMap();
+		if (!ret.ok()) {
 			return ret;
 		}
 
-		Slice slice((char *) &buffer[0], buffer.size());
+		INode inode_c;
+		ret = ReadINode(inode.ptr, inode_c);
+		if (!ret.ok()) {
+			return ret;
+		}
+		inode_c.size = buffer.size();
+		ret = WriteINode({inode_c, inode.ptr}, false);
+		if (!ret.ok()) {
+			return ret;
+		}
 
-		return NewWritableFileByINode(inode).Append(slice,IOOptions(), nullptr);
+		Slice slice((char *)&buffer[0], buffer.size());
+		RocksWriteableFile file = NewWritableFileByINode({inode_c, inode.ptr});
+		return file.Append(slice, IOOptions(), nullptr);
 	}
 
 	RocksWriteableFile S2FileSystem::NewWritableFileByINode(const RichInode rich_inode) {
@@ -1029,6 +1074,7 @@ namespace ROCKSDB_NAMESPACE {
 	//         IOError if an IO Error was encountered
 	IOStatus S2FileSystem::GetChildren(const std::string &dir, const IOOptions &options,
 									   std::vector<std::string> *result, __attribute__((unused)) IODebugContext *dbg) {
+		UNUSED(options);
 		INode inode;
 		INodePointer ptr;
 		auto ret = FindInode(dir, inode, ptr);
@@ -1037,7 +1083,8 @@ namespace ROCKSDB_NAMESPACE {
 		}
 		std::vector<DirectoryEntry> dir_list;
 		DirectorySuperBlock dir_sb;
-		ret = ReadDirectory(inode, dir_sb, dir_list);
+		uint32_t temp;
+		ret = ReadDirectory(inode, dir_sb, dir_list, temp);
 		if (!ret.ok()) {
 			return ret;
 		}

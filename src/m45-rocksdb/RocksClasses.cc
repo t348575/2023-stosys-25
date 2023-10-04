@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 				}
 			}
 
-			auto ret = fs->ReadBlock(curr_inode.disk_pointers[disk_ptr], (uint8_t*)scratch + n - left);
+			auto ret = fs->ReadBlock(curr_inode.disk_pointers[disk_ptr], (uint8_t *)scratch + n - left);
 			if (!ret.ok()) {
 				return ret;
 			}
@@ -54,14 +54,19 @@ namespace ROCKSDB_NAMESPACE {
 		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
 		current_inode = &this->root_inode;
 		buffer.resize(zns_dev->lba_size_bytes);
-		current_inode_address = (uint64_t)&root_inode;
+		current_inode_address = (uint64_t)current_inode;
 	}
 
 	RocksWriteableFile::~RocksWriteableFile() {
-		if (current_inode_address != (uint64_t)current_inode) {
+		DeleteCurrentNode();
+		Close(IOOptions(), nullptr);
+	}
+
+	void RocksWriteableFile::DeleteCurrentNode() {
+		if (current_inode != nullptr && current_inode_address != (uint64_t)current_inode &&
+			current_inode_address != 0) {
 			delete current_inode;
 		}
-		Close(IOOptions(), nullptr);
 	}
 
 	IOStatus RocksWriteableFile::Append(const Slice &data, const IOOptions &options, IODebugContext *dbg) {
@@ -73,12 +78,12 @@ namespace ROCKSDB_NAMESPACE {
 			const auto offset = zns_dev->lba_size_bytes - last_block_leftover;
 			uint64_t op_size = std::min(std::min(offset, zns_dev->lba_size_bytes), (uint32_t)left);
 
-			if (last_block_leftover == 0) {
-				fs->AddDiskPointer(&current_inode);
+			if (last_block_leftover == 0 || current_inode->inode.num_disk_pointers == 0) {
+				fs->AddDiskPointer(&current_inode, std::bind(&RocksWriteableFile::DeleteCurrentNode, this));
 			}
 
 			auto current_disk_ptr = current_inode->inode.disk_pointers[current_inode->inode.num_disk_pointers - 1];
-			if (last_block_leftover != 0) {
+			if (last_block_leftover != 0 && root_inode.inode.size > zns_dev->lba_size_bytes) {
 				auto ret = fs->ReadBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
 					return ret;
@@ -109,7 +114,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {
-		return fs->WriteINode(root_inode.inode, root_inode.ptr, false);
+		return fs->WriteINode({root_inode.inode, root_inode.ptr}, false);
 	}
 	IOStatus RocksWriteableFile::Close(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }
 	IOStatus RocksWriteableFile::Sync(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }

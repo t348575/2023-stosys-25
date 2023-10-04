@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
 
+#pragma once
+
 #ifndef STOSYS_PROJECT_S2FILESYSTEM_H
 #define STOSYS_PROJECT_S2FILESYSTEM_H
 
@@ -34,6 +36,7 @@ SOFTWARE.
 
 namespace ROCKSDB_NAMESPACE {
 	const static uint8_t BLOCK_BIT_MASKS[4] = {0b00000011, 0b00001100, 0b00110000, 0b11000000};
+	const static uint8_t RESET_BIT_MASKS[4] = {0b11111100, 0b11110011, 0b11001111, 0b00111111};
 	const static uint32_t INODE_SIZE = 116;
 	const static uint32_t NUM_DISK_POINTERS = 13;
 	const static uint32_t NUM_NESTED_DISK_POINTERS = 27;
@@ -108,6 +111,7 @@ namespace ROCKSDB_NAMESPACE {
 		std::vector<uint32_t> data_nodes;
 	};
 
+	class RocksWriteableFile;
 	class S2FileSystem : public FileSystem {
 	public:
 		enum FsError : int { None = 0, CouldNotFindInode = -1 };
@@ -209,14 +213,15 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus WriteSuperBlock();
 		IOStatus WriteBlock(const uint32_t block, const uint8_t *data);
 		IOStatus ReadBlock(const uint32_t block, uint8_t *data);
+		IOStatus RemoveInode(const INodePointer ptr);
 
 		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
 		IOStatus PlaceNewDataBlock(uint32_t &block_num);
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
-		IOStatus WriteINode(const INode inode, const INodePointer ptr, bool increment_count);
+		IOStatus WriteINode(const RichInode ri, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
 		IOStatus FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive);
-		IOStatus AddDiskPointer(RichInode **inode);
+		IOStatus AddDiskPointer(RichInode **inode, std::function<void()> clear_callback);
 
 		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
@@ -225,7 +230,7 @@ namespace ROCKSDB_NAMESPACE {
 							   std::vector<DirectoryEntry> &directory, uint32_t &buffer_size);
 		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 									 INode &node, INodePointer &ptr);
-		RocksWriteableFile S2FileSystem::NewWritableFileByINode(const RichInode rich_inode);
+		RocksWriteableFile NewWritableFileByINode(const RichInode rich_inode);
 
 	private:
 		struct user_zns_device *zns_dev;
@@ -233,8 +238,8 @@ namespace ROCKSDB_NAMESPACE {
 		const std::string _fs_delimiter = "/";
 
 		// indexes offset after super block and block_map
-		std::vector<uint8_t> block_map; //bitmap of inode and data
-		uint32_t block_map_offset; //end of data bitmap block
+		std::vector<uint8_t> block_map; // bitmap of inode and data
+		uint32_t block_map_offset;		// end of data bitmap block
 		uint32_t inodes_per_block;
 		SuperBlock super_block;
 		DataMap *device = DataMap::get_instance();

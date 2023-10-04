@@ -14,6 +14,15 @@ int main() {
     z.CreateDirIfMissing("/a/b", rdb::IOOptions(), nullptr);
     z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);
 
+    z.RenameFile("/a/c", "/a/d", rdb::IOOptions(), nullptr);
+
+    std::vector<std::string> dirs;
+    z.GetChildren("/a", rdb::IOOptions(), &dirs, nullptr);
+    std::cout << "Children of /a are: " << std::endl;
+    for (const auto &t: dirs) {
+        std::cout << "/a/" << t << std::endl;
+    }
+
     std::unique_ptr<rdb::FSWritableFile> wr_file;
     if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
         std::cout << "Could not create writeable file" << std::endl;
@@ -45,5 +54,6 @@ int main() {
         }
     }
     std::cout << "All done!" << std::endl;
+
     return 0;
 }

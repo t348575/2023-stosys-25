@@ -37,6 +37,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	class RocksWriteableFile : public FSWritableFile {
 	public:
+		RocksWriteableFile() = default;
 		RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev);
 		~RocksWriteableFile();
 
@@ -44,12 +45,13 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Close(const IOOptions &options, IODebugContext *dbg);
 		IOStatus Flush(const IOOptions &options, IODebugContext *dbg);
 		IOStatus Sync(const IOOptions &options, IODebugContext *dbg);
+		void DeleteCurrentNode();
 
 	private:
-		RichInode root_inode, *current_inode;
+		RichInode root_inode, *current_inode = nullptr;
 		std::vector<uint8_t> buffer;
 		S2FileSystem *fs;
-		uint64_t current_inode_address;
+		uint64_t current_inode_address = 0;
 		struct user_zns_device *zns_dev;
 	};
 } // namespace ROCKSDB_NAMESPACE
