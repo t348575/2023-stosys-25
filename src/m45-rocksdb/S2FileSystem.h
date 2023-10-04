@@ -220,11 +220,12 @@ namespace ROCKSDB_NAMESPACE {
 
 		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
-		IOStatus WriteEntireFile(const INode inode, const std::vector<uint8_t> &buffer);
+		IOStatus WriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
-							   std::vector<DirectoryEntry> &directory);
+							   std::vector<DirectoryEntry> &directory, uint32_t &buffer_size);
 		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 									 INode &node, INodePointer &ptr);
+		RocksWriteableFile S2FileSystem::NewWritableFileByINode(const RichInode rich_inode);
 
 	private:
 		struct user_zns_device *zns_dev;
@@ -232,8 +233,8 @@ namespace ROCKSDB_NAMESPACE {
 		const std::string _fs_delimiter = "/";
 
 		// indexes offset after super block and block_map
-		std::vector<uint8_t> block_map;
-		uint32_t block_map_offset;
+		std::vector<uint8_t> block_map; //bitmap of inode and data
+		uint32_t block_map_offset; //end of data bitmap block
 		uint32_t inodes_per_block;
 		SuperBlock super_block;
 		DataMap *device = DataMap::get_instance();

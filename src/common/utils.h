@@ -40,6 +40,8 @@ uint16_t u16_from_buffer(const uint8_t *buffer);
 
 void u32_to_buffer(const uint32_t value, uint8_t *output);
 void u16_to_buffer(const uint16_t value, uint8_t *output);
+
+uint64_t closest_upper_multiple(uint64_t n, uint64_t x);
 }
 
 uint64_t microseconds_since_epoch();
