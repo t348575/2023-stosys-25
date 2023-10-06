@@ -100,7 +100,8 @@ namespace ROCKSDB_NAMESPACE {
 
 		uint32_t pos = 0;
 		uint64_t const read_upto = is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS;
-		for (uint64_t i = 58; pos < read_upto; i += 4, pos++) {
+		uint64_t const from = is_nested ? 6 : 58;
+		for (uint64_t i = from; pos < read_upto; i += 4, pos++) {
 			u32_to_buffer(disk_pointers[pos], &output[i]);
 		}
 
@@ -196,15 +197,18 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	void S2FileSystem::SetBlockType(const uint16_t num, const BlockType block_type) {
+		std::lock_guard<std::recursive_mutex> g(mtx);
 		block_map[num / 4] &= RESET_BIT_MASKS[num % 4];
 		block_map[num / 4] |= BLOCK_BIT_MASKS[num % 4] & block_type << (num % 4) * 2;
 	}
 
-	S2FileSystem::BlockType S2FileSystem::GetBlockType(const uint32_t num) const {
+	S2FileSystem::BlockType S2FileSystem::GetBlockType(const uint32_t num) {
+		std::lock_guard<std::recursive_mutex> g(mtx);
 		return (S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[num / 4] >> (num % 4) * 2);
 	}
 
 	IOStatus S2FileSystem::WriteBlockMap() {
+		std::lock_guard<std::recursive_mutex> g(mtx);
 		auto ret = zns_udevice_write(zns_dev, zns_dev->lba_size_bytes, &block_map[0], super_block.block_map_size);
 		if (ret != 0) {
 			return IOStatus::IOError();
@@ -340,6 +344,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::PlaceNewINodeBlock(const INode inode, INodePointer &ptr) {
 		std::vector<uint8_t> buffer;
+		std::lock_guard<std::recursive_mutex> g(mtx);
 		buffer.resize(zns_dev->lba_size_bytes);
 		for (uint32_t i = 0; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
@@ -389,6 +394,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::PlaceNewDataBlock(uint32_t &block_num) {
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
+		std::lock_guard<std::recursive_mutex> g(mtx);
 		for (uint32_t i = super_block.original_inode_reserved / 4; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const t_block_num = (i * 4) + j;
@@ -485,27 +491,6 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive) {
-		// TODO: add recursive to get dir items
-		INode use_inode = inode;
-		while (true) {
-			result.data_nodes.insert(result.data_nodes.end(), use_inode.disk_pointers,
-									 use_inode.disk_pointers + use_inode.num_disk_pointers);
-
-			if (use_inode.use_next_pointer) {
-				result.inodes.push_back(use_inode.next_pointer);
-				const auto status = ReadINode(use_inode.next_pointer, use_inode);
-				if (!status.ok()) {
-					return status;
-				}
-			} else {
-				break;
-			}
-		}
-
-		return IOStatus::OK();
-	}
-
 	IOStatus S2FileSystem::AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 											   INode &node, INodePointer &ptr) {
 		// TODO: remove dsb from every page
@@ -570,55 +555,11 @@ namespace ROCKSDB_NAMESPACE {
 			return OverWriteEntireFile({node, ptr}, buffer);
 		}
 		return IOStatus::OK();
-		// INode use_node = base_node;
-		// INode base_node_c = base_node;
-		// while (true) {
-		// 	if (use_node.use_next_pointer) {
-		// 		const auto status = ReadINode(use_node.next_pointer, use_node);
-		// 		if (!status.ok()) {
-		// 			return status;
-		// 		}
-		// 		continue;
-		// 	}
-
-		// 	uint32_t buffer_idx = 0;
-		// 	auto ret = ReadBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
-		// 	if (!ret.ok()) {
-		// 		return ret;
-		// 	}
-
-		// 	dir_super_block = DirectorySuperBlock(&buffer[0]);
-		// 	buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
-
-		// 	for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
-		// 		buffer_idx += DirectoryEntry(&buffer[buffer_idx]).name_len + DIR_BLOCK_PLAIN_SIZE;
-		// 	}
-
-		// 	base_node_c.size += space_needed;
-		// 	ret = WriteINode({base_node_c, base_ptr}, false);
-		// 	if (!ret.ok()) {
-		// 		return ret;
-		// 	}
-
-		// 	if (buffer_idx + space_needed > zns_dev->lba_size_bytes) {
-		// 		// TODO: create another disk pointer or inode as needed
-		// 	}
-
-		// 	entry.serialize(&buffer[buffer_idx]);
-		// 	dir_super_block.num_entries++;
-		// 	dir_super_block.serialize(&buffer[0]);
-		// 	ret = WriteBlock(use_node.disk_pointers[use_node.num_disk_pointers - 1], &buffer[0]);
-		// 	if (!ret.ok()) {
-		// 		return ret;
-		// 	}
-		// 	break;
-		// }
-		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::AddDiskPointer(RichInode **ri_node, RichInode **old_inode) {
-		if ((!(*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
-			((*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
+	IOStatus S2FileSystem::AddDiskPointer(RichInode *ri_node, RichInode **output) {
+		if ((!ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
+			(ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
 			RichInode *new_inode = new RichInode;
 			new_inode->inode.is_nested = true;
 			new_inode->inode.num_disk_pointers = 1;
@@ -632,23 +573,22 @@ namespace ROCKSDB_NAMESPACE {
 				return ret;
 			}
 
-			(*ri_node)->inode.next_pointer = new_inode->ptr;
-			(*ri_node)->inode.use_next_pointer = true;
-			ret = WriteINode({(*ri_node)->inode, (*ri_node)->ptr}, false);
+			ri_node->inode.next_pointer = new_inode->ptr;
+			ri_node->inode.use_next_pointer = true;
+			ret = WriteINode({ri_node->inode, ri_node->ptr}, false);
 			if (!ret.ok()) {
 				return ret;
 			}
-			*old_inode = *ri_node;
-			*ri_node = new_inode;
+			*output = new_inode;
 			return IOStatus::OK();
 		}
 
-		(*ri_node)->inode.num_disk_pointers++;
-		auto ret = PlaceNewDataBlock((*ri_node)->inode.disk_pointers[(*ri_node)->inode.num_disk_pointers - 1]);
+		ri_node->inode.num_disk_pointers++;
+		auto ret = PlaceNewDataBlock(ri_node->inode.disk_pointers[ri_node->inode.num_disk_pointers - 1]);
 		if (!ret.ok()) {
 			return ret;
 		}
-		return WriteINode({(*ri_node)->inode, (*ri_node)->ptr}, false);
+		return WriteINode({ri_node->inode, ri_node->ptr}, false);
 	}
 
 	IOStatus S2FileSystem::RemoveInode(const INodePointer ptr) {
@@ -702,9 +642,7 @@ namespace ROCKSDB_NAMESPACE {
 			return IOStatus::NotFound();
 		}
 
-		auto r = new RocksSequentialFile(inode, zns_dev, this);
-		r->path = _fname;
-		result->reset(r);
+		result->reset(new RocksSequentialFile(inode, zns_dev, this));
 		return IOStatus::OK();
 	}
 
@@ -767,9 +705,7 @@ namespace ROCKSDB_NAMESPACE {
 			}
 		}
 
-		auto r = new RocksWriteableFile({inode, ptr}, this, zns_dev);
-		r->path = _fname;
-		result->reset(r);
+		result->reset(new RocksWriteableFile({inode, ptr}, this, zns_dev));
 		return IOStatus::OK();
 	}
 

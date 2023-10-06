@@ -164,6 +164,8 @@ uint64_t closest_upper_multiple(uint64_t x, uint64_t n) {
 	return n;
 }
 
+uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
+
 std::vector<std::string> split(const std::string &input, const std::string &delimiter) {
 	std::vector<std::string> result;
 	uint64_t start = 0;

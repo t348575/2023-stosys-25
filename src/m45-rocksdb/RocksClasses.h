@@ -15,7 +15,6 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Read(size_t n, const IOOptions &options, Slice *result, char *scratch, IODebugContext *dbg);
 		IOStatus Skip(uint64_t n);
 
-		std::string path;
 	private:
 		INode root_inode;
 		INode curr_inode;
@@ -49,18 +48,18 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Sync(const IOOptions &options, IODebugContext *dbg);
 		void DeleteCurrentNode();
 
-		std::string path;
 	private:
-		RichInode root_inode, *current_inode = nullptr;
+		RichInode root_inode, *current_inode;
 		std::vector<uint8_t> buffer;
 		S2FileSystem *fs;
-		uint64_t current_inode_address = 0;
 		struct user_zns_device *zns_dev;
+		bool past_root = false;
 	};
 
 	class RocksRandomAccessFile : public FSRandomAccessFile {
 	public:
-		RocksRandomAccessFile(const INode inode, const struct user_zns_device *zns_dev, S2FileSystem *fs, IOStatus &init_status);
+		RocksRandomAccessFile(const INode inode, const struct user_zns_device *zns_dev, S2FileSystem *fs,
+							  IOStatus &init_status);
 
 		IOStatus Read(uint64_t offset, size_t n, const IOOptions &options, Slice *result, char *scratch,
 					  IODebugContext *dbg) const;

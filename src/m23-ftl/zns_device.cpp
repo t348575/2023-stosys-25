@@ -32,6 +32,7 @@ SOFTWARE.
 #include <unistd.h>
 
 #include "../common/unused.h"
+#include "../common/utils.h"
 #include "ftl.h"
 #include "visual_profiler.h"
 #include "zns_device.h"
@@ -499,8 +500,6 @@ void gc_loop() {
 	}
 	records->gc_exited = true;
 }
-
-inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
 	PROFILE_FUNCTION();

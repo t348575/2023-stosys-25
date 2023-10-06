@@ -3,7 +3,8 @@
 #include <utils.h>
 
 namespace ROCKSDB_NAMESPACE {
-	RocksSequentialFile::RocksSequentialFile(const INode root_inode, const struct user_zns_device *zns_dev, S2FileSystem *fs)
+	RocksSequentialFile::RocksSequentialFile(const INode root_inode, const struct user_zns_device *zns_dev,
+											 S2FileSystem *fs)
 		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
 		buffer.resize(zns_dev->lba_size_bytes);
 	}
@@ -64,46 +65,52 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	RocksWriteableFile::RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev)
-		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
-		current_inode = &this->root_inode;
+		: root_inode(root_inode), current_inode(&this->root_inode), fs(fs), zns_dev(zns_dev) {
 		buffer.resize(zns_dev->lba_size_bytes);
-		current_inode_address = (uint64_t)current_inode;
 	}
 
 	RocksWriteableFile::~RocksWriteableFile() {
-		DeleteCurrentNode();
-		Close(IOOptions(), nullptr);
-	}
-
-	void RocksWriteableFile::DeleteCurrentNode() {
-		if (current_inode != nullptr && current_inode_address != (uint64_t)current_inode &&
-			current_inode_address != 0) {
+		if (past_root) {
 			delete current_inode;
 		}
+		Close(IOOptions(), nullptr);
 	}
 
 	IOStatus RocksWriteableFile::Append(const Slice &data, const IOOptions &options, IODebugContext *dbg) {
 		UNUSED(options);
 		UNUSED(dbg);
 		uint64_t left = data.size();
-		std::cout << "Writing " << std::to_string(data.size()) << " bytes from " << path << std::endl;
+		// std::cout << "Writing " << std::to_string(data.size()) << " bytes from " << path << std::endl;
 		while (left > 0) {
 			const auto last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
 			const auto offset = zns_dev->lba_size_bytes - last_block_leftover;
 			uint64_t op_size = std::min(std::min(offset, zns_dev->lba_size_bytes), (uint32_t)left);
 
 			if (last_block_leftover == 0 || current_inode->inode.num_disk_pointers == 0) {
-				RichInode *old_inode = nullptr;
-				fs->AddDiskPointer(&current_inode, &old_inode);
+				RichInode *tmp = nullptr;
+				fs->AddDiskPointer(current_inode, &tmp);
+				if (tmp != nullptr) {
+					if (past_root) {
+						delete current_inode;
+					}
+					past_root = true;
+					current_inode = tmp;
+				}
 			}
 
 			auto current_disk_ptr = current_inode->inode.disk_pointers[current_inode->inode.num_disk_pointers - 1];
-			if (last_block_leftover != 0 && root_inode.inode.size > zns_dev->lba_size_bytes) {
+			if (last_block_leftover != 0) {
 				auto ret = fs->ReadBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
 					return ret;
 				}
 
+				if (offset + op_size > zns_dev->lba_size_bytes) {
+					op_size = zns_dev->lba_size_bytes - offset;
+				}
+
+				// std::cout << offset << " " << data.size() 	<< " " << data.size() - left << " " << op_size << " " <<
+				// left << " " << last_block_leftover << std::endl;
 				memcpy(&buffer[offset], data.data() + data.size() - left, op_size);
 				ret = fs->WriteBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
@@ -135,7 +142,8 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus RocksWriteableFile::Close(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }
 	IOStatus RocksWriteableFile::Sync(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }
 
-	RocksRandomAccessFile::RocksRandomAccessFile(const INode root_inode, const struct user_zns_device *zns_dev, S2FileSystem *fs, IOStatus &init_status)
+	RocksRandomAccessFile::RocksRandomAccessFile(const INode root_inode, const struct user_zns_device *zns_dev,
+												 S2FileSystem *fs, IOStatus &init_status)
 		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
 		init_status = IOStatus::OK();
 		RichInode current_ri;

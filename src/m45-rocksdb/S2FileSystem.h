@@ -30,7 +30,6 @@ SOFTWARE.
 #include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 
-#include "Common.h"
 #include "LockManager.h"
 
 #include <iostream>
@@ -59,6 +58,8 @@ namespace ROCKSDB_NAMESPACE {
 		uint32_t block;
 		uint8_t offset;
 	};
+
+	enum S2EntryType : uint8_t { File = 0, Directory };
 
 	class INode {
 	public:
@@ -105,11 +106,6 @@ namespace ROCKSDB_NAMESPACE {
 		S2EntryType type;
 		uint32_t name_len;
 		std::string name;
-	};
-
-	struct FindAllNodesResult {
-		std::vector<INodePointer> inodes;
-		std::vector<uint32_t> data_nodes;
 	};
 
 	struct DeleteDirDfsItem {
@@ -214,7 +210,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		static std::string SanitizePath(const std::string input);
 		void SetBlockType(const uint16_t num, const BlockType block_type);
-		BlockType GetBlockType(const uint32_t num) const;
+		BlockType GetBlockType(const uint32_t num);
 		IOStatus WriteBlockMap();
 		IOStatus WriteSuperBlock();
 		IOStatus WriteBlock(const uint32_t block, const uint8_t *data);
@@ -226,8 +222,7 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
 		IOStatus WriteINode(const RichInode ri, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
-		IOStatus FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive);
-		IOStatus AddDiskPointer(RichInode **inode, RichInode **old_inode);
+		IOStatus AddDiskPointer(RichInode *inode, RichInode **output);
 
 		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
@@ -250,6 +245,7 @@ namespace ROCKSDB_NAMESPACE {
 		uint32_t inodes_per_block;
 		SuperBlock super_block;
 		DataMap *device = DataMap::get_instance();
+		std::recursive_mutex mtx;
 	};
 } // namespace ROCKSDB_NAMESPACE
 

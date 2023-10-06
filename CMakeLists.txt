@@ -58,7 +58,7 @@ set(CMAKE_BUILD_TYPE Debug) # or debug if you need to use gdb on it.
 set(CMAKE_CXX_COMPILER g++) # or clang++
 #set(CMAKE_CXX_COMPILER clang++) # or clang++
 message("compiler is ${CMAKE_CXX_COMPILER_ID}   and name is ${CMAKE_CXX_COMPILER}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wl,--no-as-needed -Wall -Wextra -Wundef")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Wl,--no-as-needed -Wall -Wextra -Wundef")
 # optimization flags
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Ofast -ffast-math -funroll-loops -march=native") # get crazy here
 # debug flags, needs a bit of customization
@@ -98,6 +98,7 @@ add_definitions (${NVME_CFLAGS})
 target_link_libraries(m1 ${NVME_LIBRARIES} pthread)
 
 add_library(stosys SHARED 
+src/common/utils.cpp src/common/utils.h 
 src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
