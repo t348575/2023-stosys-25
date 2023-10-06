@@ -453,8 +453,7 @@ uint64_t merge_log_zones() {
 void gc(bool force_merge) {
 	auto const records = DataMap::get_instance();
 	PROFILE_SCOPE("gc_" + std::to_string(force_merge) + "_" + std::to_string(records->write_counter));
-	records->log_mtx.lock();
-	records->data_mtx.lock();
+	records->mtx.lock();
 
 	try_logical_conversion();
 	reclaim_empty_log_zones();
@@ -472,8 +471,7 @@ void gc(bool force_merge) {
 		reclaim_empty_log_zones();
 	}
 
-	records->data_mtx.unlock();
-	records->log_mtx.unlock();
+	records->mtx.unlock();
 }
 
 void gc_loop() {
@@ -485,14 +483,14 @@ void gc_loop() {
 		// 	records->write_counter -= std::min(write_counter, (uint64_t)30);
 		// }
 
-		records->log_mtx.lock_shared();
+		records->mtx.lock();
 		uint64_t num_free_log_pages = records->count_free_log_pages();
-		records->log_mtx.unlock_shared();
+		records->mtx.unlock();
 		while (num_free_log_pages / records->dd->zone_size < records->dd->gc_wmark) {
 			gc(true);
-			records->log_mtx.lock_shared();
+			records->mtx.lock();
 			num_free_log_pages = records->count_free_log_pages();
-			records->log_mtx.unlock_shared();
+			records->mtx.unlock();
 		}
 
 		// if (records->write_counter > (records->dd->log_zones * records->dd->zone_size) / 8) {
@@ -508,8 +506,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 	PROFILE_FUNCTION();
 	UNUSED(my_dev);
 	auto const records = DataMap::get_instance();
-	records->log_mtx.lock_shared();
-	records->data_mtx.lock_shared();
+	records->mtx.lock();
 
 	uint64_t size_c = size;
 	uint64_t end_address = address + size;
@@ -556,8 +553,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 		address += size - size_c;
 	}
 
-	records->data_mtx.unlock_shared();
-	records->log_mtx.unlock_shared();
+	records->mtx.unlock();
 
 	return 0;
 }
@@ -566,15 +562,15 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 	PROFILE_FUNCTION();
 	auto const records = DataMap::get_instance();
 	UNUSED(my_dev);
-	records->log_mtx.lock();
+	records->mtx.lock();
 	uint64_t size_c = size;
 	while (size_c > 0) {
 		int zone_idx;
 		uint64_t zone_size = records->get_free_log_zone(zone_idx);
 		while (zone_idx == -1) {
-			records->log_mtx.unlock();
+			records->mtx.unlock();
 			gc(true);
-			records->log_mtx.lock();
+			records->mtx.lock();
 			zone_size = records->get_free_log_zone(zone_idx);
 		}
 
@@ -604,6 +600,6 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 		size_c -= op_size;
 		address += size - size_c;
 	}
-	records->log_mtx.unlock();
+	records->mtx.unlock();
 	return 0;
 }

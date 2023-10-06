@@ -69,10 +69,12 @@ public:
 	std::vector<DataRecord> data_zones;
 	const struct user_zns_device *device;
 	const struct device_data *dd;
-	std::shared_mutex data_mtx, log_mtx;
+	// std::shared_mutex data_mtx, log_mtx;
+	std::mutex mtx;
 	std::atomic<uint64_t> write_counter;
 	bool should_run_gc = true;
 	bool gc_exited = false;
+	bool inited = false;
 	static DataMap *records;
 };
 

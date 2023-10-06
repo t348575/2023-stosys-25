@@ -15,3 +15,5 @@ do
     clang-format -i --style=file src/m45-rocksdb/$item.cc
     clang-format -i --style=file src/m45-rocksdb/$item.h
 done
+
+clang-format -i --style=file src/m45-rocksdb/LockManager.h

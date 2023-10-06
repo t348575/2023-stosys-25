@@ -22,6 +22,7 @@ SOFTWARE.
 
 #include "S2FileSystem.h"
 #include <iostream>
+#include <stack>
 #include <string>
 #include <sys/mman.h>
 
@@ -285,7 +286,6 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::FindInode(const std::string &path, INode &inode, INodePointer &ptr) {
-		std::string _path = SanitizePath(path);
 		std::string current_path;
 		bool continue_searching = true;
 		ptr.block = 0;
@@ -309,14 +309,14 @@ namespace ROCKSDB_NAMESPACE {
 				return status;
 			}
 
-			if (current_path + "/" + dir_super_block.name == _path) {
+			if (current_path + "/" + dir_super_block.name == path) {
 				return IOStatus::OK();
 			}
 
 			for (const auto &entry : dir_list) {
-				auto const is_path_eq = current_path + "/" + entry.name == _path;
+				auto const is_path_eq = current_path + "/" + entry.name == path;
 				if (is_path_eq ||
-					(entry.type == S2EntryType::Directory && _path.find(current_path + "/" + entry.name) == 0)) {
+					(entry.type == S2EntryType::Directory && path.find(current_path + "/" + entry.name) == 0)) {
 					ptr.block = entry.block;
 					ptr.offset = entry.offset;
 					auto status = ReadINode({.block = entry.block, .offset = entry.offset}, inode);
@@ -409,13 +409,12 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::CreateItem(const std::string &path, const S2EntryType item, INode &inode,
 									  INodePointer &ptr) {
-		std::string _path = SanitizePath(path);
-		auto const idx = _path.find_last_of("/");
+		auto const idx = path.find_last_of("/");
 		std::string base_path;
 		if (idx == std::string::npos) {
-			base_path = _path;
+			base_path = path;
 		} else {
-			base_path = _path.substr(0, idx + 1);
+			base_path = path.substr(0, idx + 1);
 		}
 
 		if (base_path.length() > 1 && base_path.back() == '/') {
@@ -435,7 +434,7 @@ namespace ROCKSDB_NAMESPACE {
 		inode.size = 0;
 
 		DirectoryEntry entry;
-		entry.name = _path.substr(idx + 1, _path.length());
+		entry.name = path.substr(idx + 1, path.length());
 		entry.name_len = entry.name.length();
 		entry.type = item;
 		return AddEntryToDirectory(base_node, base_ptr, entry, inode, ptr);
@@ -469,6 +468,7 @@ namespace ROCKSDB_NAMESPACE {
 					return ret;
 				}
 				buffer_idx += zns_dev->lba_size_bytes;
+				output.resize(output.size() + zns_dev->lba_size_bytes);
 			}
 
 			if (use_inode.use_next_pointer) {
@@ -559,7 +559,17 @@ namespace ROCKSDB_NAMESPACE {
 			buffer_index += DIR_BLOCK_PLAIN_SIZE + t.name_len;
 		}
 
-		return WriteEntireFile({base_node, base_ptr}, buffer);
+		ret = OverWriteEntireFile({base_node, base_ptr}, buffer);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		if (node.inode_type == S2EntryType::File) {
+			buffer.resize(1);
+			buffer[0] = '\n';
+			return OverWriteEntireFile({node, ptr}, buffer);
+		}
+		return IOStatus::OK();
 		// INode use_node = base_node;
 		// INode base_node_c = base_node;
 		// while (true) {
@@ -606,7 +616,7 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::AddDiskPointer(RichInode **ri_node, std::function<void()> clear_callback) {
+	IOStatus S2FileSystem::AddDiskPointer(RichInode **ri_node, RichInode **old_inode) {
 		if ((!(*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
 			((*ri_node)->inode.is_nested && (*ri_node)->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
 			RichInode *new_inode = new RichInode;
@@ -628,7 +638,7 @@ namespace ROCKSDB_NAMESPACE {
 			if (!ret.ok()) {
 				return ret;
 			}
-			clear_callback();
+			*old_inode = *ri_node;
 			*ri_node = new_inode;
 			return IOStatus::OK();
 		}
@@ -657,6 +667,12 @@ namespace ROCKSDB_NAMESPACE {
 
 			memcpy(&buffer[1 + (ptr.offset * INODE_SIZE)], &buffer[1 + (i * INODE_SIZE)], INODE_SIZE);
 		}
+
+		if (num_inodes == 1) {
+			SetBlockType(ptr.block, BlockType::Unused);
+			return WriteBlockMap();
+		}
+
 		buffer[0]--;
 		return WriteBlock(ptr.block, &buffer[0]);
 	}
@@ -674,9 +690,11 @@ namespace ROCKSDB_NAMESPACE {
 											 __attribute__((unused)) IODebugContext *dbg) {
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(fname, inode, ptr);
+		auto const _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(_fname);
+		auto ret = FindInode(_fname, inode, ptr);
 		if (ret.code() == Status::Code::kNotFound) {
-			ret = CreateItem(fname, S2EntryType::File, inode, ptr);
+			ret = CreateItem(_fname, S2EntryType::File, inode, ptr);
 			if (!ret.ok()) {
 				return ret;
 			}
@@ -684,7 +702,9 @@ namespace ROCKSDB_NAMESPACE {
 			return IOStatus::NotFound();
 		}
 
-		result->reset(new RocksSequentialFile(inode, zns_dev, this));
+		auto r = new RocksSequentialFile(inode, zns_dev, this);
+		r->path = _fname;
+		result->reset(r);
 		return IOStatus::OK();
 	}
 
@@ -702,7 +722,18 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewRandomAccessFile(const std::string &fname, const FileOptions &file_opts,
 											   std::unique_ptr<FSRandomAccessFile> *result,
 											   __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		INode inode;
+		INodePointer ptr;
+		auto const _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(_fname);
+		auto ret = FindInode(_fname, inode, ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		IOStatus init_status;
+		result->reset(new RocksRandomAccessFile(inode, zns_dev, this, init_status));
+		return init_status;
 	}
 
 	const char *S2FileSystem::Name() const { return "S2FileSytem"; }
@@ -717,20 +748,28 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewWritableFile(const std::string &fname, const FileOptions &file_opts,
 										   std::unique_ptr<FSWritableFile> *result,
 										   __attribute__((unused)) IODebugContext *dbg) {
-		// TODO: delete old file
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(fname, inode, ptr);
+		auto const _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(_fname);
+		auto ret = FindInode(_fname, inode, ptr);
 		if (ret.code() == Status::Code::kNotFound) {
-			ret = CreateItem(fname, S2EntryType::File, inode, ptr);
+			ret = CreateItem(_fname, S2EntryType::File, inode, ptr);
 			if (!ret.ok()) {
 				return ret;
 			}
 		} else if (!ret.ok()) {
 			return IOStatus::NotFound();
+		} else if (ret.ok()) {
+			ret = RemoveItem(_fname, {inode, ptr});
+			if (!ret.ok()) {
+				return ret;
+			}
 		}
 
-		result->reset(new RocksWriteableFile({inode, ptr}, this, zns_dev));
+		auto r = new RocksWriteableFile({inode, ptr}, this, zns_dev);
+		r->path = _fname;
+		result->reset(r);
 		return IOStatus::OK();
 	}
 
@@ -758,7 +797,11 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewDirectory(const std::string &name, const IOOptions &io_opts,
 										std::unique_ptr<FSDirectory> *result,
 										__attribute__((unused)) IODebugContext *dbg) {
-		const auto ret = CreateDir(name, io_opts, dbg);
+		auto const _name = SanitizePath(name);
+		auto g = LockManager::WriteGuard(_name);
+		INode inode;
+		INodePointer ptr;
+		const auto ret = FindInode(_name, inode, ptr);
 		if (!ret.ok()) {
 			return ret;
 		}
@@ -780,14 +823,16 @@ namespace ROCKSDB_NAMESPACE {
 									 __attribute__((unused)) IODebugContext *dbg) {
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(dirname, inode, ptr);
+		const auto _dirname = SanitizePath(dirname);
+		auto g = LockManager::WriteGuard(_dirname);
+		auto ret = FindInode(_dirname, inode, ptr);
 		if (ret.ok()) {
 			return IOStatus::InvalidArgument();
 		} else if (ret.code() != Status::kNotFound) {
 			return ret;
 		}
 
-		return CreateItem(dirname, S2EntryType::Directory, inode, ptr);
+		return CreateItem(_dirname, S2EntryType::Directory, inode, ptr);
 	}
 
 	// Creates directory if missing. Return Ok if it exists, or successful in
@@ -796,11 +841,41 @@ namespace ROCKSDB_NAMESPACE {
 											  __attribute__((unused)) IODebugContext *dbg) {
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(dirname, inode, ptr);
+		const auto _dirname = SanitizePath(dirname);
+		auto g = LockManager::WriteGuard(_dirname);
+		auto ret = FindInode(_dirname, inode, ptr);
 		if (ret.code() == Status::Code::kNotFound) {
-			ret = CreateDir(dirname, options, dbg);
-			if (!ret.ok()) {
-				return ret;
+			std::stack<std::string> dirs_to_create;
+			dirs_to_create.push(_dirname);
+
+			std::string last_path = _dirname;
+			while (true) {
+				auto const idx = last_path.find_last_of("/");
+				std::string base_path;
+				if (idx == std::string::npos) {
+					base_path = last_path;
+				} else {
+					base_path = last_path.substr(0, idx + 1);
+				}
+
+				if (base_path.length() > 1 && base_path.back() == '/') {
+					base_path.pop_back();
+				}
+
+				ret = FindInode(base_path, inode, ptr);
+				if (ret.code() == Status::Code::kNotFound) {
+					dirs_to_create.push(base_path);
+					last_path = base_path;
+				} else if (!ret.ok()) {
+					return ret;
+				} else {
+					break;
+				}
+			}
+
+			while (dirs_to_create.size() > 0) {
+				CreateDir(dirs_to_create.top(), options, dbg);
+				dirs_to_create.pop();
 			}
 		} else if (!ret.ok()) {
 			return IOStatus::NotFound();
@@ -812,7 +887,9 @@ namespace ROCKSDB_NAMESPACE {
 									   __attribute__((unused)) IODebugContext *dbg) {
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(fname, inode, ptr);
+		const auto _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(_fname);
+		auto ret = FindInode(_fname, inode, ptr);
 		if (!ret.ok()) {
 			return ret;
 		}
@@ -822,7 +899,62 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::DeleteDir(const std::string &dirname, const IOOptions &options,
 									 __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		RichInode ri;
+		const auto _dirname = SanitizePath(dirname);
+		auto g = LockManager::WriteGuard(_dirname);
+		auto ret = FindInode(_dirname, ri.inode, ri.ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		if (ri.inode.inode_type != S2EntryType::Directory) {
+			return IOStatus::InvalidArgument();
+		}
+
+		std::stack<DeleteDirDfsItem> dfs_stack, delete_stack;
+		dfs_stack.push({ri, _dirname});
+		while (dfs_stack.size() > 0) {
+			DeleteDirDfsItem current = dfs_stack.top();
+			dfs_stack.pop();
+
+			if (current.ri.inode.inode_type == S2EntryType::Directory) {
+				delete_stack.push(current);
+
+				uint32_t temp;
+				DirectorySuperBlock dir_sb;
+				std::vector<DirectoryEntry> dir_entries;
+				auto ret = ReadDirectory(current.ri.inode, dir_sb, dir_entries, temp);
+				if (!ret.ok()) {
+					return ret;
+				}
+
+				for (const auto &entry : dir_entries) {
+					INode temp_inode;
+					INodePointer ptr = {.block = entry.block, .offset = entry.offset};
+					ret = ReadINode(ptr, temp_inode);
+					if (!ret.ok()) {
+						return ret;
+					}
+					dfs_stack.push({.ri = {temp_inode, ptr}, .path = current.path + "/" + entry.name});
+				}
+			} else {
+				ret = RemoveItem(current.path, current.ri);
+				if (!ret.ok()) {
+					return ret;
+				}
+			}
+		}
+
+		while (delete_stack.size() > 0) {
+			DeleteDirDfsItem current = delete_stack.top();
+			delete_stack.pop();
+			ret = RemoveItem(current.path, current.ri);
+			if (!ret.ok()) {
+				return ret;
+			}
+		}
+
+		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::GetFileModificationTime(const std::string &fname, const IOOptions &options,
@@ -832,18 +964,30 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::GetAbsolutePath(const std::string &db_path, const IOOptions &options,
 										   std::string *output_path, __attribute__((unused)) IODebugContext *dbg) {
-		*output_path = db_path;
+		*output_path = SanitizePath(db_path);
 		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::DeleteFile(const std::string &fname, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		RichInode ri;
+		const auto _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(fname);
+		auto ret = FindInode(_fname, ri.inode, ri.ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		if (ri.inode.inode_type != S2EntryType::File) {
+			return IOStatus::InvalidArgument();
+		}
+
+		return RemoveItem(_fname, ri);
 	}
 
 	IOStatus S2FileSystem::NewLogger(const std::string &fname, const IOOptions &io_opts,
 									 std::shared_ptr<Logger> *result, __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::GetTestDirectory(const IOOptions &options, std::string *path,
@@ -856,7 +1000,7 @@ namespace ROCKSDB_NAMESPACE {
 	// REQUIRES: lock has not already been unlocked.
 	IOStatus S2FileSystem::UnlockFile(FileLock *lock, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		return IOStatus::OK();
 	}
 
 	// Lock the specified file.  Used to prevent concurrent access to
@@ -875,7 +1019,7 @@ namespace ROCKSDB_NAMESPACE {
 	// May create the named file if it does not already exist.
 	IOStatus S2FileSystem::LockFile(const std::string &fname, const IOOptions &options, FileLock **lock,
 									__attribute__((unused)) IODebugContext *dbg) {
-		return IOStatus::IOError(__FUNCTION__);
+		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::AreFilesSame(const std::string &, const std::string &, const IOOptions &, bool *,
@@ -894,31 +1038,36 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::RenameFile(const std::string &src, const std::string &target, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
 		INode inode, src_inode;
-		INodePointer ptr;
-		auto const idx = src.find_last_of("/");
+		INodePointer ptr, src_ptr;
 
-		auto ret = FindInode(src, src_inode, ptr);
+		auto const _src = SanitizePath(src);
+		auto const _target = SanitizePath(target);
+		auto g_src = LockManager::WriteGuard(_src);
+		auto g_target = LockManager::WriteGuard(_target);
+		auto const idx = _src.find_last_of("/");
 
+		auto ret = FindInode(_src, src_inode, src_ptr);
 		if (!ret.ok()) {
 			return ret;
 		}
 
-		ret = FindInode(target, inode, ptr);
-
+		ret = FindInode(_target, inode, ptr);
 		if (ret.code() != Status::Code::kNotFound) {
 			if (ret.ok()) {
-				return IOStatus::InvalidArgument();
+				ret = RemoveItem(_target, {inode, ptr});
+				if (!ret.ok()) {
+					return ret;
+				}
 			}
 
 			return ret;
 		}
 
 		std::string base_path;
-
 		if (idx == std::string::npos) {
-			base_path = src;
+			base_path = _src;
 		} else {
-			base_path = src.substr(0, idx + 1);
+			base_path = _src.substr(0, idx + 1);
 		}
 
 		if (base_path.length() > 1 && base_path.back() == '/') {
@@ -926,7 +1075,6 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		ret = FindInode(base_path, inode, ptr);
-
 		if (!ret.ok()) {
 			return ret;
 		}
@@ -934,16 +1082,18 @@ namespace ROCKSDB_NAMESPACE {
 		DirectorySuperBlock directory_super_block;
 		std::vector<DirectoryEntry> directory_entry;
 		uint32_t buffer_size;
-
 		ret = ReadDirectory(inode, directory_super_block, directory_entry, buffer_size);
+		if (!ret.ok()) {
+			return ret;
+		}
 
-		std::string src_name = src;
+		std::string src_name = _src;
 		if (src_name.back() == '/') {
 			src_name.pop_back();
 		}
 		src_name = src_name.substr(src_name.find_last_of('/') + 1);
 
-		std::string target_name = target;
+		std::string target_name = _target;
 		if (target_name.back() == '/') {
 			target_name.pop_back();
 		}
@@ -957,7 +1107,31 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		if (src_inode.inode_type == S2EntryType::Directory) {
-			// TODO: rename super block
+			DirectorySuperBlock src_sb;
+			std::vector<DirectoryEntry> src_entries;
+			uint32_t src_buffer;
+			ret = ReadDirectory(src_inode, src_sb, src_entries, src_buffer);
+			if (!ret.ok()) {
+				return ret;
+			}
+
+			src_sb.name = target_name;
+			src_sb.name_len = target_name.length();
+			std::vector<uint8_t> buffer;
+			buffer.resize(src_buffer + (src_name.length() - target_name.length()));
+			uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + src_sb.name_len;
+			src_sb.serialize(&buffer[0]);
+
+			for (auto &entry : src_entries) {
+				entry.serialize(&buffer[buffer_index]);
+				buffer_index += DIR_BLOCK_PLAIN_SIZE + entry.name_len;
+			}
+
+			buffer.resize(buffer_index + 1);
+			ret = OverWriteEntireFile({src_inode, src_ptr}, buffer);
+			if (!ret.ok()) {
+				return ret;
+			}
 		}
 
 		std::vector<uint8_t> buffer;
@@ -971,10 +1145,94 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		buffer.resize(buffer_index + 1);
-		return WriteEntireFile({inode, ptr}, buffer);
+		return OverWriteEntireFile({inode, ptr}, buffer);
 	}
 
-	IOStatus S2FileSystem::WriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer) {
+	IOStatus S2FileSystem::RemoveItem(const std::string path, const RichInode ri) {
+		RichInode ri_c = ri;
+		auto ret = RemoveInode(ri_c.ptr);
+		const auto _path = SanitizePath(path);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		auto const idx = _path.find_last_of("/");
+		std::string base_path;
+		if (idx == std::string::npos) {
+			base_path = _path;
+		} else {
+			base_path = _path.substr(0, idx + 1);
+		}
+
+		if (base_path.length() > 1 && base_path.back() == '/') {
+			base_path.pop_back();
+		}
+
+		std::string path_name = _path;
+		if (path_name.back() == '/') {
+			path_name.pop_back();
+		}
+		path_name = path_name.substr(path_name.find_last_of('/') + 1);
+
+		RichInode base;
+		ret = FindInode(base_path, base.inode, base.ptr);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		uint32_t buffer_size;
+		DirectorySuperBlock dir_sb;
+		std::vector<DirectoryEntry> dir_entries;
+		ret = ReadDirectory(base.inode, dir_sb, dir_entries, buffer_size);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		std::vector<uint8_t> buffer;
+		buffer.resize(buffer_size - DIR_BLOCK_PLAIN_SIZE - path_name.length());
+		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_sb.name_len;
+		dir_sb.num_entries--;
+		dir_sb.serialize(&buffer[0]);
+
+		for (auto &entry : dir_entries) {
+			if (entry.name == path_name) {
+				continue;
+			}
+			entry.serialize(&buffer[buffer_index]);
+			buffer_index += DIR_BLOCK_PLAIN_SIZE + entry.name_len;
+		}
+		buffer.resize(buffer_index + 1);
+		ret = OverWriteEntireFile(base, buffer);
+		if (!ret.ok()) {
+			return ret;
+		}
+
+		INode inode_tmp = ri_c.inode;
+		while (true) {
+			for (uint32_t i = 0; i < inode_tmp.num_disk_pointers; i++) {
+				SetBlockType(inode_tmp.disk_pointers[i], BlockType::Unused);
+			}
+
+			if (!inode_tmp.use_next_pointer) {
+				break;
+			}
+
+			IOStatus ret = ReadINode(ri_c.inode.next_pointer, inode_tmp);
+			if (!ret.ok()) {
+				return ret;
+			}
+
+			ret = RemoveInode(ri_c.inode.next_pointer);
+			if (!ret.ok()) {
+				return ret;
+			}
+			ri_c.inode = inode_tmp;
+		}
+
+		return WriteBlockMap();
+	}
+
+	IOStatus S2FileSystem::OverWriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer) {
 		uint32_t num_to_delete =
 				closest_upper_multiple(zns_dev->lba_size_bytes, inode.inode.size) / zns_dev->lba_size_bytes;
 
@@ -991,6 +1249,7 @@ namespace ROCKSDB_NAMESPACE {
 			}
 
 			traversed_inode_vector.push_back({inode_tmp, inode_current.next_pointer});
+			inode_current = inode_tmp;
 		}
 
 		while (traversed_inode_vector.size() > 0 && num_to_delete > 0) { // remove the inode
@@ -1044,7 +1303,7 @@ namespace ROCKSDB_NAMESPACE {
 		if (!ret.ok()) {
 			return ret;
 		}
-		inode_c.size = buffer.size();
+		inode_c.size = 0;
 		ret = WriteINode({inode_c, inode.ptr}, false);
 		if (!ret.ok()) {
 			return ret;
@@ -1077,7 +1336,9 @@ namespace ROCKSDB_NAMESPACE {
 		UNUSED(options);
 		INode inode;
 		INodePointer ptr;
-		auto ret = FindInode(dir, inode, ptr);
+		const auto _dirname = SanitizePath(dir);
+		auto g = LockManager::WriteGuard(_dirname);
+		auto ret = FindInode(_dirname, inode, ptr);
 		if (!ret.ok()) {
 			return ret;
 		}
@@ -1103,7 +1364,9 @@ namespace ROCKSDB_NAMESPACE {
 									  __attribute__((unused)) IODebugContext *dbg) {
 		INode inode;
 		INodePointer ptr;
-		return FindInode(fname, inode, ptr);
+		auto const _fname = SanitizePath(fname);
+		auto g = LockManager::WriteGuard(_fname);
+		return FindInode(_fname, inode, ptr);
 	}
 
 	IOStatus S2FileSystem::ReuseWritableFile(const std::string &fname, const std::string &old_fname,
@@ -1118,6 +1381,10 @@ namespace ROCKSDB_NAMESPACE {
 		while ((start_pos = output.find("//", start_pos)) != std::string::npos) {
 			output.replace(start_pos, 2, "/");
 			start_pos += 1;
+		}
+
+		if (output.length() > 1 && output.back() == '/') {
+			output.pop_back();
 		}
 		return output;
 	}

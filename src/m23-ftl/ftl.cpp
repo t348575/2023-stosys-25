@@ -14,6 +14,10 @@ inline int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
 }
 
 void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
+	if (inited) {
+		return;
+	}
+
 	device = _device;
 	dd = _dd;
 	PROFILE_FUNCTION();
@@ -34,6 +38,7 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 										 .flag = status_flag::Invalid}));
 		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 	}
+	inited = true;
 }
 
 void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {

@@ -10,6 +10,8 @@ int main() {
     std::unique_ptr<rdb::FSSequentialFile> file;
     z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
     z.CreateDir("/a", rdb::IOOptions(), nullptr);
+    rdb::INode n;
+    z.ReadINode({.block=0,.offset=0}, n);
     z.CreateDirIfMissing("/b", rdb::IOOptions(), nullptr);
     z.CreateDirIfMissing("/a/b", rdb::IOOptions(), nullptr);
     z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);
@@ -53,6 +55,24 @@ int main() {
             std::cout << "Not matching " << std::to_string(i) << " " << std::to_string((uint8_t)*(slice.data() + i)) << " " << std::to_string(i % 0xFF) << std::endl;
         }
     }
+
+    std::unique_ptr<rdb::FSRandomAccessFile> r_file;
+    z.NewRandomAccessFile("/a/c", rdb::FileOptions(), &r_file, nullptr);
+    r_file->Read(255, 128, rdb::IOOptions(), &slice, &temp_buffer[0], nullptr);
+    for (uint32_t i = 0; i < 128; i++) {
+        if ((uint8_t)*(slice.data() + i) != (uint8_t)i) {
+            std::cout << "Not matching " << std::to_string(i) << " " << std::to_string((uint8_t)*(slice.data() + i)) << " " << std::to_string(i) << std::endl;
+        }
+    }
+
+    z.DeleteDir("/a", rdb::IOOptions(), nullptr);
+    dirs.clear();
+    z.GetChildren("/", rdb::IOOptions(), &dirs, nullptr);
+    std::cout << "Children of / are: " << std::endl;
+    for (const auto &t: dirs) {
+        std::cout << "/" << t << std::endl;
+    }
+
     std::cout << "All done!" << std::endl;
 
     return 0;

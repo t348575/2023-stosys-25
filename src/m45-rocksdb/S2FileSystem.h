@@ -30,6 +30,9 @@ SOFTWARE.
 #include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 
+#include "Common.h"
+#include "LockManager.h"
+
 #include <iostream>
 #include <vector>
 #include <zns_device.h>
@@ -56,8 +59,6 @@ namespace ROCKSDB_NAMESPACE {
 		uint32_t block;
 		uint8_t offset;
 	};
-
-	enum S2EntryType : uint8_t { File = 0, Directory };
 
 	class INode {
 	public:
@@ -109,6 +110,11 @@ namespace ROCKSDB_NAMESPACE {
 	struct FindAllNodesResult {
 		std::vector<INodePointer> inodes;
 		std::vector<uint32_t> data_nodes;
+	};
+
+	struct DeleteDirDfsItem {
+		RichInode ri;
+		std::string path;
 	};
 
 	class RocksWriteableFile;
@@ -221,15 +227,16 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus WriteINode(const RichInode ri, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
 		IOStatus FindAllNodes(const INode inode, FindAllNodesResult &result, const bool recursive);
-		IOStatus AddDiskPointer(RichInode **inode, std::function<void()> clear_callback);
+		IOStatus AddDiskPointer(RichInode **inode, RichInode **old_inode);
 
 		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
-		IOStatus WriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer);
+		IOStatus OverWriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
 							   std::vector<DirectoryEntry> &directory, uint32_t &buffer_size);
 		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 									 INode &node, INodePointer &ptr);
+		IOStatus RemoveItem(const std::string path, const RichInode ri);
 		RocksWriteableFile NewWritableFileByINode(const RichInode rich_inode);
 
 	private:

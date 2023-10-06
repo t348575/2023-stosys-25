@@ -23,7 +23,7 @@ project(stosys-project VERSION 1.0.1 DESCRIPTION "StoSys project code for Storag
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
 set(CMAKE_CXX_STANDARD 17)
-#add_compile_options("-std=c++17")
+add_compile_options("-std=c++17")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -33,7 +33,7 @@ set(CMAKE_INSTALL_PREFIX "/home/$ENV{USER}/local/")
 
 # Project configuration specific parameters
 set(STOSYS_M45 ON)
-set(STOSYS_FS_DEBUG ON)
+set(STOSYS_FS_DEBUG OFF)
 set(STOSYS_CMAKE_DEBUG OFF)
 set(STOSYS_ASAN OFF)
 
@@ -143,6 +143,7 @@ if(STOSYS_M45)
 
     if (STOSYS_FS_DEBUG)
         add_executable(m45 src/m45-rocksdb/debug-m45_main.cc 
+        src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
         src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
         src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
     else()
@@ -150,6 +151,7 @@ if(STOSYS_M45)
         src/m45-rocksdb/rocksdb_s2fs.cc
         src/m45-rocksdb/DummyFSForward.cc src/m45-rocksdb/DummyFSForward.h 
         src/m45-rocksdb/MyRocksContext.h 
+        src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
         src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
         src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
     endif()

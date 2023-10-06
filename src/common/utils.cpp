@@ -31,6 +31,7 @@ SOFTWARE.
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 extern "C" {
 
@@ -161,4 +162,18 @@ uint64_t closest_upper_multiple(uint64_t x, uint64_t n) {
 	n = n + x / 2;
 	n = n - (n % x);
 	return n;
+}
+
+std::vector<std::string> split(const std::string &input, const std::string &delimiter) {
+	std::vector<std::string> result;
+	uint64_t start = 0;
+	for (uint64_t found = input.find(delimiter); found != std::string::npos; found = input.find(delimiter, start)) {
+		result.emplace_back(input.begin() + start, input.begin() + found);
+		start = found + delimiter.size();
+	}
+
+	if (start != input.size()) {
+		result.emplace_back(input.begin() + start, input.end());
+	}
+	return result;
 }
