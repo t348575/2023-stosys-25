@@ -1,8 +1,8 @@
 #include <cstdint>
 #include <iostream>
 
+#include "../common/visual_profiler.h"
 #include "ftl.h"
-#include "visual_profiler.h"
 
 DataMap *DataMap::records = nullptr;
 
@@ -13,9 +13,9 @@ inline int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
 	return nvme_zns_mgmt_send(fd, nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
 }
 
-void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
-	if (inited) {
-		return;
+bool DataMap::init(const user_zns_device *_device, const device_data *_dd) {
+	if (has_been_initialized) {
+		return true;
 	}
 
 	device = _device;
@@ -23,12 +23,8 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 	PROFILE_FUNCTION();
 	log_zones.reserve(device->tparams.zns_num_zones);
 	uint32_t i = 0;
-	for (; i < dd->log_zones / 2; i++) {
-		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size, false));
-		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
-	}
 	for (; i < dd->log_zones; i++) {
-		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size, true));
+		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
 		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 	}
 	for (uint32_t j = 0; i < device->tparams.zns_num_zones; i++, j++) {
@@ -38,7 +34,9 @@ void DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 										 .flag = status_flag::Invalid}));
 		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 	}
-	inited = true;
+
+	has_been_initialized = true;
+	return false;
 }
 
 void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
@@ -47,15 +45,44 @@ void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
 	log_zones[idx].zone_size++;
 }
 
-uint64_t DataMap::get_free_log_zone(int &index) {
+uint64_t DataMap::get_free_log_zone(const uint64_t address, int &index) {
 	PROFILE_FUNCTION();
 	auto const size = log_zones.size();
+#ifdef PREFER_SEQ_LOG
+	auto const base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, address);
 	for (uint64_t i = 0; i < size; i++) {
-		if (log_zones[i].zone_size != dd->zone_size) {
+		if (log_zones[i].is_seq && log_zones[i].base_address == base_address &&
+			log_zones[i].zone_size != dd->zone_size) {
 			index = i;
 			return log_zones[i].zone_size;
 		}
 	}
+
+	for (uint64_t i = 0; i < size; i++) {
+		if (log_zones[i].zone_size == 0) {
+			log_zones[i].is_seq = true;
+			log_zones[i].base_address = base_address;
+			index = i;
+			return log_zones[i].zone_size;
+		}
+	}
+
+	for (uint64_t i = 0; i < size; i++) {
+		if (!log_zones[i].is_seq && log_zones[i].zone_size != dd->zone_size) {
+			index = i;
+			return log_zones[i].zone_size;
+		}
+	}
+#endif
+
+	for (uint64_t i = 0; i < size; i++) {
+		if (log_zones[i].zone_size != dd->zone_size) {
+			log_zones[i].is_seq = false;
+			index = i;
+			return log_zones[i].zone_size;
+		}
+	}
+
 	index = -1;
 	return 0;
 }

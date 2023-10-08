@@ -32,6 +32,7 @@ SOFTWARE.
 
 #include "LockManager.h"
 
+#include <ftl.h>
 #include <iostream>
 #include <vector>
 #include <zns_device.h>
@@ -39,23 +40,23 @@ SOFTWARE.
 namespace ROCKSDB_NAMESPACE {
 	const static uint8_t BLOCK_BIT_MASKS[4] = {0b00000011, 0b00001100, 0b00110000, 0b11000000};
 	const static uint8_t RESET_BIT_MASKS[4] = {0b11111100, 0b11110011, 0b11001111, 0b00111111};
-	const static uint32_t INODE_SIZE = 116;
-	const static uint32_t NUM_DISK_POINTERS = 13;
-	const static uint32_t NUM_NESTED_DISK_POINTERS = 27;
-	const static uint32_t DIR_BLOCK_PLAIN_SIZE = 10;
-	const static uint32_t DIR_SUPER_BLOCK_PLAIN_SIZE = 8;
+	const static uint64_t INODE_SIZE = 132;
+	const static uint64_t NUM_DISK_POINTERS = 13;
+	const static uint64_t NUM_NESTED_DISK_POINTERS = 14;
+	const static uint64_t DIR_BLOCK_PLAIN_SIZE = 18;
+	const static uint64_t DIR_SUPER_BLOCK_PLAIN_SIZE = 16;
 
 	class SuperBlock {
 	public:
 		SuperBlock() = default;
 		SuperBlock(const std::vector<uint8_t> &buffer);
 		void serialize(std::vector<uint8_t> &output);
-		uint32_t block_map_size;
+		uint64_t block_map_size;
 		uint16_t original_inode_reserved;
 	};
 
 	struct INodePointer {
-		uint32_t block;
+		uint64_t block;
 		uint8_t offset;
 	};
 
@@ -69,12 +70,9 @@ namespace ROCKSDB_NAMESPACE {
 
 		bool is_nested = false;
 		S2EntryType inode_type;
-		uint32_t num_disk_pointers = 0;
-		uint16_t mode, uid, gid, links_count;
-		uint32_t size = 0, time, ctime, mtime, dtime;
-		uint32_t blocks, flags, osd1;
-		uint32_t generation, file_acl, dir_acl;
-		uint32_t disk_pointers[27]; // or 13 if normal size
+		uint64_t num_disk_pointers = 0;
+		uint64_t size = 0;
+		uint64_t disk_pointers[NUM_NESTED_DISK_POINTERS]; // or NUM_DISK_POINTERS if normal size
 		INodePointer next_pointer;
 		bool use_next_pointer = false;
 	};
@@ -90,8 +88,8 @@ namespace ROCKSDB_NAMESPACE {
 		DirectorySuperBlock(const uint8_t *buffer);
 		void serialize(uint8_t *output) const;
 
-		uint32_t num_entries = 0;
-		uint32_t name_len;
+		uint64_t num_entries = 0;
+		uint64_t name_len;
 		std::string name;
 	};
 
@@ -101,10 +99,10 @@ namespace ROCKSDB_NAMESPACE {
 		DirectoryEntry(const uint8_t *buffer);
 		void serialize(uint8_t *output) const;
 
-		uint32_t block;
+		uint64_t block;
 		uint8_t offset;
 		S2EntryType type;
-		uint32_t name_len;
+		uint64_t name_len;
 		std::string name;
 	};
 
@@ -210,15 +208,15 @@ namespace ROCKSDB_NAMESPACE {
 
 		static std::string SanitizePath(const std::string input);
 		void SetBlockType(const uint16_t num, const BlockType block_type);
-		BlockType GetBlockType(const uint32_t num);
+		BlockType GetBlockType(const uint64_t num);
 		IOStatus WriteBlockMap();
 		IOStatus WriteSuperBlock();
-		IOStatus WriteBlock(const uint32_t block, const uint8_t *data);
-		IOStatus ReadBlock(const uint32_t block, uint8_t *data);
+		IOStatus WriteBlock(const uint64_t block, const uint8_t *data);
+		IOStatus ReadBlock(const uint64_t block, uint8_t *data);
 		IOStatus RemoveInode(const INodePointer ptr);
 
 		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
-		IOStatus PlaceNewDataBlock(uint32_t &block_num);
+		IOStatus PlaceNewDataBlock(uint64_t &block_num);
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
 		IOStatus WriteINode(const RichInode ri, bool increment_count);
 		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
@@ -228,7 +226,7 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
 		IOStatus OverWriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
-							   std::vector<DirectoryEntry> &directory, uint32_t &buffer_size);
+							   std::vector<DirectoryEntry> &directory, uint64_t &buffer_size);
 		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 									 INode &node, INodePointer &ptr);
 		IOStatus RemoveItem(const std::string path, const RichInode ri);
@@ -241,8 +239,8 @@ namespace ROCKSDB_NAMESPACE {
 
 		// indexes offset after super block and block_map
 		std::vector<uint8_t> block_map; // bitmap of inode and data
-		uint32_t block_map_offset;		// end of data bitmap block
-		uint32_t inodes_per_block;
+		uint64_t block_map_offset;		// end of data bitmap block
+		uint64_t inodes_per_block;
 		SuperBlock super_block;
 		DataMap *device = DataMap::get_instance();
 		std::recursive_mutex mtx;

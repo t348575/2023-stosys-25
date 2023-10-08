@@ -35,7 +35,7 @@ SOFTWARE.
 #include <unistd.h>
 #include "zns_device.h"
 #include "../common/utils.h"
-#include "visual_profiler.h"
+#include "../common/visual_profiler.h"
 
 
 static int get_sequence_as_array (uint64_t capacity, uint64_t **arr, bool shuffle) {

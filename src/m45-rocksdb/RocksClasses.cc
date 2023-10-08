@@ -1,6 +1,7 @@
 #include "RocksClasses.h"
 
 #include <utils.h>
+#include <visual_profiler.h>
 
 namespace ROCKSDB_NAMESPACE {
 	RocksSequentialFile::RocksSequentialFile(const INode root_inode, const struct user_zns_device *zns_dev,
@@ -13,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 									   IODebugContext *dbg) {
 		UNUSED(options);
 		UNUSED(dbg);
-		// std::cout << "Reading " << std::to_string(n) << " bytes from " << path << std::endl;
+		PROFILE_SCOPE("RocksSequentialFile::Read");
 		uint64_t left = n;
 		while (left > 0) {
 			if (ptr == root_inode.size) {
@@ -49,7 +50,7 @@ namespace ROCKSDB_NAMESPACE {
 				return ret;
 			}
 
-			const auto op_size = std::min(std::min(zns_dev->lba_size_bytes, (uint32_t)left), root_inode.size);
+			const auto op_size = std::min(std::min((uint64_t)zns_dev->lba_size_bytes, left), root_inode.size);
 			memcpy((uint8_t *)scratch + n - left, &buffer[0], op_size);
 			ptr += op_size;
 			disk_ptr++;
@@ -70,21 +71,21 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	RocksWriteableFile::~RocksWriteableFile() {
+		Close(IOOptions(), nullptr);
 		if (past_root) {
 			delete current_inode;
 		}
-		Close(IOOptions(), nullptr);
 	}
 
 	IOStatus RocksWriteableFile::Append(const Slice &data, const IOOptions &options, IODebugContext *dbg) {
 		UNUSED(options);
 		UNUSED(dbg);
+		PROFILE_FUNCTION();
 		uint64_t left = data.size();
-		// std::cout << "Writing " << std::to_string(data.size()) << " bytes from " << path << std::endl;
 		while (left > 0) {
-			const auto last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
-			const auto offset = zns_dev->lba_size_bytes - last_block_leftover;
-			uint64_t op_size = std::min(std::min(offset, zns_dev->lba_size_bytes), (uint32_t)left);
+			const uint64_t last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
+			const uint64_t offset = zns_dev->lba_size_bytes - last_block_leftover;
+			uint64_t op_size = std::min(std::min(offset, (uint64_t)zns_dev->lba_size_bytes), left);
 
 			if (last_block_leftover == 0 || current_inode->inode.num_disk_pointers == 0) {
 				RichInode *tmp = nullptr;
@@ -109,8 +110,6 @@ namespace ROCKSDB_NAMESPACE {
 					op_size = zns_dev->lba_size_bytes - offset;
 				}
 
-				// std::cout << offset << " " << data.size() 	<< " " << data.size() - left << " " << op_size << " " <<
-				// left << " " << last_block_leftover << std::endl;
 				memcpy(&buffer[offset], data.data() + data.size() - left, op_size);
 				ret = fs->WriteBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
@@ -132,7 +131,6 @@ namespace ROCKSDB_NAMESPACE {
 			left -= op_size;
 			root_inode.inode.size += op_size;
 		}
-		// std::cout << "Done writing " << std::to_string(data.size()) << " bytes from " << path << std::endl;
 		return IOStatus::OK();
 	}
 
@@ -145,6 +143,7 @@ namespace ROCKSDB_NAMESPACE {
 	RocksRandomAccessFile::RocksRandomAccessFile(const INode root_inode, const struct user_zns_device *zns_dev,
 												 S2FileSystem *fs, IOStatus &init_status)
 		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
+		PROFILE_FUNCTION();
 		init_status = IOStatus::OK();
 		RichInode current_ri;
 		current_ri.inode = root_inode;
@@ -166,27 +165,28 @@ namespace ROCKSDB_NAMESPACE {
 										 char *scratch, IODebugContext *dbg) const {
 		UNUSED(options);
 		UNUSED(dbg);
+		PROFILE_SCOPE("RocksRandomAccessFile::Read");
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 
-		uint32_t output_ptr = 0, size_left = n;
+		uint64_t output_ptr = 0, size_left = n;
 		auto const start_block = closest_lower_multiple(zns_dev->lba_size_bytes, offset) / zns_dev->lba_size_bytes;
 		auto const end_block = closest_upper_multiple(zns_dev->lba_size_bytes, offset + n) / zns_dev->lba_size_bytes;
-		uint32_t op_size;
+		uint64_t op_size;
 		if (offset + n > root_inode.size) {
 			op_size = root_inode.size - offset;
 		} else {
 			op_size = n;
 		}
 
-		for (uint32_t i = start_block; i < end_block; i++) {
+		for (uint64_t i = start_block; i < end_block; i++) {
 			auto ret = fs->ReadBlock(disk_pointers[i], &buffer[0]);
 			if (!ret.ok()) {
 				return ret;
 			}
 
-			uint32_t copy_from = 0;
-			uint32_t copy_size = std::min(zns_dev->lba_size_bytes, size_left);
+			uint64_t copy_from = 0;
+			uint64_t copy_size = std::min((uint64_t)zns_dev->lba_size_bytes, size_left);
 			if (i == start_block) {
 				copy_from = offset - closest_lower_multiple(zns_dev->lba_size_bytes, offset);
 			} else if (i == end_block) {

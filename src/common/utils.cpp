@@ -124,9 +124,9 @@ std::string get_vm_stats() {
 	return ss.str();
 }
 
-uint32_t u32_from_buffer(const uint8_t *buffer) {
-	uint32_t result = 0;
-	for (uint32_t i = 0; i < 4; i++) {
+uint64_t u64_from_buffer(const uint8_t *buffer) {
+	uint64_t result = 0;
+	for (uint64_t i = 0; i < 8; i++) {
 		result <<= 8;
 		result |= buffer[i];
 	}
@@ -142,11 +142,15 @@ uint16_t u16_from_buffer(const uint8_t *buffer) {
 	return result;
 }
 
-void u32_to_buffer(const uint32_t value, uint8_t *output) {
-	output[0] = (value >> 24) & 0xFF;
-	output[1] = (value >> 16) & 0xFF;
-	output[2] = (value >> 8) & 0xFF;
-	output[3] = value & 0xFF;
+void u64_to_buffer(const uint64_t value, uint8_t *output) {
+	output[0] = (value >> 56) & 0xFF;
+	output[1] = (value >> 48) & 0xFF;
+	output[2] = (value >> 40) & 0xFF;
+	output[3] = (value >> 32) & 0xFF;
+	output[4] = (value >> 24) & 0xFF;
+	output[5] = (value >> 16) & 0xFF;
+	output[6] = (value >> 8) & 0xFF;
+	output[7] = value & 0xFF;
 }
 
 void u16_to_buffer(const uint16_t value, uint8_t *output) {

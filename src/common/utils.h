@@ -36,10 +36,10 @@ void match_pattern(char *data, uint64_t len);
 void write_pattern_with_start(char *data, uint64_t len, uint64_t s);
 void match_pattern_with_start(char *data, uint64_t len, uint64_t s);
 
-uint32_t u32_from_buffer(const uint8_t *buffer);
+uint64_t u64_from_buffer(const uint8_t *buffer);
 uint16_t u16_from_buffer(const uint8_t *buffer);
 
-void u32_to_buffer(const uint32_t value, uint8_t *output);
+void u64_to_buffer(const uint64_t value, uint8_t *output);
 void u16_to_buffer(const uint16_t value, uint8_t *output);
 
 uint64_t closest_upper_multiple(uint64_t n, uint64_t x);

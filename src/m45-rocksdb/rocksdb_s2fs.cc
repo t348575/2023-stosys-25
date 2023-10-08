@@ -38,14 +38,7 @@ namespace ROCKSDB_NAMESPACE {
                     "s2fs:.*://.*", [](const std::string &uri, std::unique_ptr<FileSystem> *ret_fs,
                                      std::string *errmsg) {
                         cout<<"Initialization uri is " << uri << " and errmsg: " << (*errmsg) << endl;
-                        // we have two setup - one - s2fs-rocksdb which is just forwarding, then the other that we can use to debug
-                        // if(false){
-                            ret_fs->reset(new S2FileSystem(uri, true));
-                        // } else {
-                        //     //DummyFSForward is forwarding implementation - I should be left in peace
-                            // class DummyFSForward *m = new DummyFSForward();
-                            // ret_fs->reset(m);
-                        // }
+                        ret_fs->reset(new S2FileSystem(uri, true));
                         return ret_fs->get();
                     });
 }

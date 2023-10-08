@@ -28,8 +28,6 @@ SOFTWARE.
 
 #include <libnvme.h>
 
-#include "ftl.h"
-
 // https://github.com/mplulu/google-breakpad/issues/481 - taken from here
 #define typeof __typeof__
 #define container_of(ptr, type, member)                                                                                \

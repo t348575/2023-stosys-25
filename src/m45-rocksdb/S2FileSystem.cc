@@ -29,104 +29,85 @@ SOFTWARE.
 #include "RocksClasses.h"
 #include <stosys_debug.h>
 #include <utils.h>
+#include <visual_profiler.h>
 
 namespace ROCKSDB_NAMESPACE {
 	SuperBlock::SuperBlock(const std::vector<uint8_t> &buffer) {
-		block_map_size = u32_from_buffer(&buffer[0]);
-		original_inode_reserved = u16_from_buffer(&buffer[4]);
+		PROFILE_FUNCTION();
+		block_map_size = u64_from_buffer(&buffer[0]);
+		original_inode_reserved = u16_from_buffer(&buffer[8]);
 	}
 
 	void SuperBlock::serialize(std::vector<uint8_t> &output) {
-		u32_to_buffer(block_map_size, &output[0]);
-		u16_to_buffer(original_inode_reserved, &output[4]);
+		PROFILE_FUNCTION();
+		u64_to_buffer(block_map_size, &output[0]);
+		u16_to_buffer(original_inode_reserved, &output[8]);
 	}
 
 	INode::INode(const uint8_t *buffer) {
+		PROFILE_FUNCTION();
 		is_nested = (bool)buffer[0];
 		inode_type = (S2EntryType)buffer[1];
-		num_disk_pointers = u32_from_buffer(&buffer[2]);
+		num_disk_pointers = u64_from_buffer(&buffer[2]);
 		if (!is_nested) {
-			mode = u16_from_buffer(&buffer[6]);
-			uid = u16_from_buffer(&buffer[8]);
-			gid = u16_from_buffer(&buffer[10]);
-			links_count = u16_from_buffer(&buffer[12]);
 
-			size = u32_from_buffer(&buffer[14]);
-			time = u32_from_buffer(&buffer[18]);
-			ctime = u32_from_buffer(&buffer[22]);
-			mtime = u32_from_buffer(&buffer[26]);
-			dtime = u32_from_buffer(&buffer[30]);
-			blocks = u32_from_buffer(&buffer[34]);
-			flags = u32_from_buffer(&buffer[38]);
-			osd1 = u32_from_buffer(&buffer[42]);
-			generation = u32_from_buffer(&buffer[46]);
-			file_acl = u32_from_buffer(&buffer[50]);
-			dir_acl = u32_from_buffer(&buffer[54]);
+			size = u64_from_buffer(&buffer[10]);
 		}
 
-		uint32_t pos = 0;
+		uint64_t pos = 0;
 		uint64_t const read_upto = is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS;
-		for (uint64_t i = 58; pos < read_upto; i += 4, pos++) {
-			disk_pointers[pos] = u32_from_buffer(&buffer[i]);
+		uint64_t const from = is_nested ? 10 : 18;
+		for (uint64_t i = from; pos < read_upto; i += 8, pos++) {
+			disk_pointers[pos] = u64_from_buffer(&buffer[i]);
 		}
 
-		next_pointer = {.block = u32_from_buffer(&buffer[110]), .offset = (uint8_t)buffer[114]};
-		use_next_pointer = buffer[115];
+		next_pointer = {.block = u64_from_buffer(&buffer[122]), .offset = (uint8_t)buffer[130]};
+		use_next_pointer = buffer[131];
 	}
 
 	void INode::serialize(uint8_t *output) const {
+		PROFILE_FUNCTION();
 		output[0] = is_nested;
 		output[1] = inode_type;
-		u32_to_buffer(num_disk_pointers, &output[2]);
+		u64_to_buffer(num_disk_pointers, &output[2]);
 
 		if (!is_nested) {
-			u16_to_buffer(mode, &output[6]);
-			u16_to_buffer(uid, &output[8]);
-			u16_to_buffer(gid, &output[10]);
-			u16_to_buffer(links_count, &output[12]);
 
-			u32_to_buffer(size, &output[14]);
-			u32_to_buffer(time, &output[18]);
-			u32_to_buffer(ctime, &output[22]);
-			u32_to_buffer(mtime, &output[26]);
-			u32_to_buffer(dtime, &output[30]);
-			u32_to_buffer(blocks, &output[34]);
-			u32_to_buffer(flags, &output[38]);
-			u32_to_buffer(osd1, &output[42]);
-			u32_to_buffer(generation, &output[46]);
-			u32_to_buffer(file_acl, &output[50]);
-			u32_to_buffer(dir_acl, &output[54]);
+			u64_to_buffer(size, &output[10]);
 		}
 
-		uint32_t pos = 0;
+		uint64_t pos = 0;
 		uint64_t const read_upto = is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS;
-		uint64_t const from = is_nested ? 6 : 58;
-		for (uint64_t i = from; pos < read_upto; i += 4, pos++) {
-			u32_to_buffer(disk_pointers[pos], &output[i]);
+		uint64_t const from = is_nested ? 10 : 18;
+		for (uint64_t i = from; pos < read_upto; i += 8, pos++) {
+			u64_to_buffer(disk_pointers[pos], &output[i]);
 		}
 
-		u32_to_buffer(next_pointer.block, &output[110]);
-		output[114] = next_pointer.offset;
-		output[115] = use_next_pointer;
+		u64_to_buffer(next_pointer.block, &output[122]);
+		output[130] = next_pointer.offset;
+		output[131] = use_next_pointer;
 	}
 
 	DirectoryEntry::DirectoryEntry(const uint8_t *buffer) {
-		block = u32_from_buffer(&buffer[0]);
-		offset = buffer[4];
-		type = (S2EntryType)buffer[5];
-		name_len = u32_from_buffer(&buffer[6]);
+		PROFILE_FUNCTION();
+		block = u64_from_buffer(&buffer[0]);
+		offset = buffer[8];
+		type = (S2EntryType)buffer[9];
+		name_len = u64_from_buffer(&buffer[10]);
 		name.assign((char *)&buffer[DIR_BLOCK_PLAIN_SIZE], name_len);
 	}
 
 	void DirectoryEntry::serialize(uint8_t *output) const {
-		u32_to_buffer(block, &output[0]);
-		output[4] = offset;
-		output[5] = (S2EntryType)type;
-		u32_to_buffer(name_len, &output[6]);
+		PROFILE_FUNCTION();
+		u64_to_buffer(block, &output[0]);
+		output[8] = offset;
+		output[9] = (S2EntryType)type;
+		u64_to_buffer(name_len, &output[10]);
 		memcpy(&output[DIR_BLOCK_PLAIN_SIZE], name.c_str(), name_len);
 	}
 
 	S2FileSystem::S2FileSystem(std::string uri_db_path, bool debug) {
+		PROFILE_FUNCTION();
 		UNUSED(debug);
 		std::string sdelimiter = ":";
 		std::string edelimiter = "://";
@@ -151,16 +132,15 @@ namespace ROCKSDB_NAMESPACE {
 		ss_dprintf(DBG_FS_1, "device %s is opened and initialized, reported LBA size is %u and capacity %lu \n",
 				   device.c_str(), this->zns_dev->lba_size_bytes, this->zns_dev->capacity_bytes);
 
-		// ftl device initialization
-		this->device->init(zns_dev, (device_data *)zns_dev->_private);
-
 		inodes_per_block = zns_dev->lba_size_bytes / INODE_SIZE;
 
 		// setup super block
-		super_block.block_map_size = zns_dev->lba_size_bytes * 2;
-		super_block.original_inode_reserved = 16;
+		auto const blocks_needed_for_bitmap =
+				((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
+		block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap + 1);
+		super_block.block_map_size = zns_dev->lba_size_bytes * blocks_needed_for_bitmap;
+		super_block.original_inode_reserved = 16 + block_map_offset;
 		WriteSuperBlock();
-		block_map_offset = 3;
 
 		// setup inode & data block map
 		this->block_map.resize(super_block.block_map_size);
@@ -197,17 +177,20 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	void S2FileSystem::SetBlockType(const uint16_t num, const BlockType block_type) {
+		PROFILE_FUNCTION();
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		block_map[num / 4] &= RESET_BIT_MASKS[num % 4];
 		block_map[num / 4] |= BLOCK_BIT_MASKS[num % 4] & block_type << (num % 4) * 2;
 	}
 
-	S2FileSystem::BlockType S2FileSystem::GetBlockType(const uint32_t num) {
+	S2FileSystem::BlockType S2FileSystem::GetBlockType(const uint64_t num) {
+		PROFILE_FUNCTION();
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		return (S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[num / 4] >> (num % 4) * 2);
 	}
 
 	IOStatus S2FileSystem::WriteBlockMap() {
+		PROFILE_FUNCTION();
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		auto ret = zns_udevice_write(zns_dev, zns_dev->lba_size_bytes, &block_map[0], super_block.block_map_size);
 		if (ret != 0) {
@@ -217,6 +200,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::WriteSuperBlock() {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> output;
 		output.resize(zns_dev->lba_size_bytes);
 		super_block.serialize(output);
@@ -227,7 +211,7 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::WriteBlock(const uint32_t block, const uint8_t *data) {
+	IOStatus S2FileSystem::WriteBlock(const uint64_t block, const uint8_t *data) {
 		auto ret = zns_udevice_write(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									 zns_dev->lba_size_bytes);
 		if (ret != 0) {
@@ -236,7 +220,7 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::ReadBlock(const uint32_t block, uint8_t *data) {
+	IOStatus S2FileSystem::ReadBlock(const uint64_t block, uint8_t *data) {
 		auto ret = zns_udevice_read(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									zns_dev->lba_size_bytes);
 		if (ret != 0) {
@@ -246,18 +230,21 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	DirectorySuperBlock::DirectorySuperBlock(const uint8_t *buffer) {
-		num_entries = u32_from_buffer(&buffer[0]);
-		name_len = u32_from_buffer(&buffer[4]);
+		PROFILE_FUNCTION();
+		num_entries = u64_from_buffer(&buffer[0]);
+		name_len = u64_from_buffer(&buffer[8]);
 		name.assign((char *)&buffer[DIR_SUPER_BLOCK_PLAIN_SIZE], name_len);
 	}
 
 	void DirectorySuperBlock::serialize(uint8_t *output) const {
-		u32_to_buffer(num_entries, &output[0]);
-		u32_to_buffer(name_len, &output[4]);
+		PROFILE_FUNCTION();
+		u64_to_buffer(num_entries, &output[0]);
+		u64_to_buffer(name_len, &output[8]);
 		memcpy(&output[DIR_SUPER_BLOCK_PLAIN_SIZE], name.c_str(), name_len);
 	}
 
 	IOStatus S2FileSystem::ReadINode(const INodePointer ptr, INode &inode) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 		auto ret = ReadBlock(ptr.block, &buffer[0]);
@@ -270,7 +257,8 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
-										 std::vector<DirectoryEntry> &directory_entries, uint32_t &buffer_size) {
+										 std::vector<DirectoryEntry> &directory_entries, uint64_t &buffer_size) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		const auto ret = ReadEntireFile(inode, buffer);
 		if (!ret.ok()) {
@@ -278,7 +266,7 @@ namespace ROCKSDB_NAMESPACE {
 		}
 		buffer_size = buffer.size();
 
-		uint32_t j = 0, buffer_idx = 0;
+		uint64_t j = 0, buffer_idx = 0;
 		dir_super_block = DirectorySuperBlock(&buffer[0]);
 		buffer_idx = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
 		for (; j < dir_super_block.num_entries && buffer_idx < zns_dev->lba_size_bytes; j++) {
@@ -290,6 +278,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::FindInode(const std::string &path, INode &inode, INodePointer &ptr) {
+		PROFILE_FUNCTION();
 		std::string current_path;
 		bool continue_searching = true;
 		ptr.block = 0;
@@ -307,7 +296,7 @@ namespace ROCKSDB_NAMESPACE {
 
 			std::vector<DirectoryEntry> dir_list;
 			DirectorySuperBlock dir_super_block;
-			uint32_t temp;
+			uint64_t temp;
 			status = ReadDirectory(inode, dir_super_block, dir_list, temp);
 			if (!status.ok()) {
 				return status;
@@ -343,10 +332,11 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::PlaceNewINodeBlock(const INode inode, INodePointer &ptr) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		buffer.resize(zns_dev->lba_size_bytes);
-		for (uint32_t i = 0; i < block_map.size(); i++) {
+		for (uint64_t i = 0; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const block_num = (i * 4) + j;
 				BlockType const block_type = GetBlockType(block_num);
@@ -391,11 +381,12 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::NoSpace();
 	}
 
-	IOStatus S2FileSystem::PlaceNewDataBlock(uint32_t &block_num) {
+	IOStatus S2FileSystem::PlaceNewDataBlock(uint64_t &block_num) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 		std::lock_guard<std::recursive_mutex> g(mtx);
-		for (uint32_t i = super_block.original_inode_reserved / 4; i < block_map.size(); i++) {
+		for (uint64_t i = super_block.original_inode_reserved / 4; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const t_block_num = (i * 4) + j;
 				BlockType const block_type = GetBlockType(t_block_num);
@@ -415,6 +406,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::CreateItem(const std::string &path, const S2EntryType item, INode &inode,
 									  INodePointer &ptr) {
+		PROFILE_FUNCTION();
 		auto const idx = path.find_last_of("/");
 		std::string base_path;
 		if (idx == std::string::npos) {
@@ -447,6 +439,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::WriteINode(const RichInode ri, bool increment_count) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 		auto ret = ReadBlock(ri.ptr.block, &buffer[0]);
@@ -463,12 +456,13 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::ReadEntireFile(const INode inode, std::vector<uint8_t> &output) {
+		PROFILE_FUNCTION();
 		output.resize(closest_upper_multiple(zns_dev->lba_size_bytes, inode.size));
 		INode use_inode = inode;
-		uint32_t buffer_idx = 0;
+		uint64_t buffer_idx = 0;
 		while (true) {
 			// TODO: optimize to sequential read later
-			for (uint32_t i = 0; i < use_inode.num_disk_pointers; i++) {
+			for (uint64_t i = 0; i < use_inode.num_disk_pointers; i++) {
 				auto ret = ReadBlock(use_inode.disk_pointers[i], &output[buffer_idx]);
 				if (!ret.ok()) {
 					return ret;
@@ -493,7 +487,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
 											   INode &node, INodePointer &ptr) {
-		// TODO: remove dsb from every page
+		PROFILE_FUNCTION();
 		if (entry.type == S2EntryType::Directory) {
 			auto ret = PlaceNewDataBlock(node.disk_pointers[0]);
 			if (!ret.ok()) {
@@ -527,7 +521,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		DirectorySuperBlock dir_super_block;
 		std::vector<DirectoryEntry> dir_list;
-		uint32_t buffer_size;
+		uint64_t buffer_size;
 		ret = ReadDirectory(base_node, dir_super_block, dir_list, buffer_size);
 		if (!ret.ok()) {
 			return ret;
@@ -535,7 +529,7 @@ namespace ROCKSDB_NAMESPACE {
 		dir_list.push_back(entry);
 
 		buffer.resize(buffer_size + DIR_BLOCK_PLAIN_SIZE + entry.name_len);
-		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
+		uint64_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_super_block.name_len;
 		dir_super_block.num_entries++;
 		dir_super_block.serialize(&buffer[0]);
 
@@ -550,14 +544,16 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		if (node.inode_type == S2EntryType::File) {
-			buffer.resize(1);
-			buffer[0] = '\n';
-			return OverWriteEntireFile({node, ptr}, buffer);
+			auto file = NewWritableFileByINode({node, ptr});
+			const char *null_char = "\n";
+			Slice s(null_char, 1);
+			return file.Append(s, IOOptions(), nullptr);
 		}
 		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::AddDiskPointer(RichInode *ri_node, RichInode **output) {
+		PROFILE_FUNCTION();
 		if ((!ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
 			(ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
 			RichInode *new_inode = new RichInode;
@@ -592,6 +588,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::RemoveInode(const INodePointer ptr) {
+		PROFILE_FUNCTION();
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 		auto ret = ReadBlock(ptr.block, &buffer[0]);
@@ -600,7 +597,7 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		uint8_t num_inodes = buffer[0];
-		for (uint32_t i = 0; i < num_inodes; i++) {
+		for (uint64_t i = 0; i < num_inodes; i++) {
 			if (i < ptr.offset) {
 				continue;
 			}
@@ -628,6 +625,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewSequentialFile(const std::string &fname, const FileOptions &file_opts,
 											 std::unique_ptr<FSSequentialFile> *result,
 											 __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		auto const _fname = SanitizePath(fname);
@@ -660,6 +658,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewRandomAccessFile(const std::string &fname, const FileOptions &file_opts,
 											   std::unique_ptr<FSRandomAccessFile> *result,
 											   __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		auto const _fname = SanitizePath(fname);
@@ -686,6 +685,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewWritableFile(const std::string &fname, const FileOptions &file_opts,
 										   std::unique_ptr<FSWritableFile> *result,
 										   __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		auto const _fname = SanitizePath(fname);
@@ -733,6 +733,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::NewDirectory(const std::string &name, const IOOptions &io_opts,
 										std::unique_ptr<FSDirectory> *result,
 										__attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		auto const _name = SanitizePath(name);
 		auto g = LockManager::WriteGuard(_name);
 		INode inode;
@@ -757,6 +758,7 @@ namespace ROCKSDB_NAMESPACE {
 	// Create the specified directory. Returns error if directory exists.
 	IOStatus S2FileSystem::CreateDir(const std::string &dirname, const IOOptions &options,
 									 __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		const auto _dirname = SanitizePath(dirname);
@@ -775,6 +777,7 @@ namespace ROCKSDB_NAMESPACE {
 	// Creating.
 	IOStatus S2FileSystem::CreateDirIfMissing(const std::string &dirname, const IOOptions &options,
 											  __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		const auto _dirname = SanitizePath(dirname);
@@ -821,6 +824,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::GetFileSize(const std::string &fname, const IOOptions &options, uint64_t *file_size,
 									   __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		const auto _fname = SanitizePath(fname);
@@ -835,6 +839,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::DeleteDir(const std::string &dirname, const IOOptions &options,
 									 __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		RichInode ri;
 		const auto _dirname = SanitizePath(dirname);
 		auto g = LockManager::WriteGuard(_dirname);
@@ -856,7 +861,7 @@ namespace ROCKSDB_NAMESPACE {
 			if (current.ri.inode.inode_type == S2EntryType::Directory) {
 				delete_stack.push(current);
 
-				uint32_t temp;
+				uint64_t temp;
 				DirectorySuperBlock dir_sb;
 				std::vector<DirectoryEntry> dir_entries;
 				auto ret = ReadDirectory(current.ri.inode, dir_sb, dir_entries, temp);
@@ -906,6 +911,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::DeleteFile(const std::string &fname, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		RichInode ri;
 		const auto _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(fname);
@@ -973,6 +979,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::RenameFile(const std::string &src, const std::string &target, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode, src_inode;
 		INodePointer ptr, src_ptr;
 
@@ -1017,7 +1024,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		DirectorySuperBlock directory_super_block;
 		std::vector<DirectoryEntry> directory_entry;
-		uint32_t buffer_size;
+		uint64_t buffer_size;
 		ret = ReadDirectory(inode, directory_super_block, directory_entry, buffer_size);
 		if (!ret.ok()) {
 			return ret;
@@ -1045,7 +1052,7 @@ namespace ROCKSDB_NAMESPACE {
 		if (src_inode.inode_type == S2EntryType::Directory) {
 			DirectorySuperBlock src_sb;
 			std::vector<DirectoryEntry> src_entries;
-			uint32_t src_buffer;
+			uint64_t src_buffer;
 			ret = ReadDirectory(src_inode, src_sb, src_entries, src_buffer);
 			if (!ret.ok()) {
 				return ret;
@@ -1055,7 +1062,7 @@ namespace ROCKSDB_NAMESPACE {
 			src_sb.name_len = target_name.length();
 			std::vector<uint8_t> buffer;
 			buffer.resize(src_buffer + (src_name.length() - target_name.length()));
-			uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + src_sb.name_len;
+			uint64_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + src_sb.name_len;
 			src_sb.serialize(&buffer[0]);
 
 			for (auto &entry : src_entries) {
@@ -1072,7 +1079,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		std::vector<uint8_t> buffer;
 		buffer.resize(buffer_size + (src_name.length() - target_name.length()));
-		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + directory_super_block.name_len;
+		uint64_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + directory_super_block.name_len;
 		directory_super_block.serialize(&buffer[0]);
 
 		for (auto &entry : directory_entry) {
@@ -1085,6 +1092,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::RemoveItem(const std::string path, const RichInode ri) {
+		PROFILE_FUNCTION();
 		RichInode ri_c = ri;
 		auto ret = RemoveInode(ri_c.ptr);
 		const auto _path = SanitizePath(path);
@@ -1116,7 +1124,7 @@ namespace ROCKSDB_NAMESPACE {
 			return ret;
 		}
 
-		uint32_t buffer_size;
+		uint64_t buffer_size;
 		DirectorySuperBlock dir_sb;
 		std::vector<DirectoryEntry> dir_entries;
 		ret = ReadDirectory(base.inode, dir_sb, dir_entries, buffer_size);
@@ -1126,7 +1134,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		std::vector<uint8_t> buffer;
 		buffer.resize(buffer_size - DIR_BLOCK_PLAIN_SIZE - path_name.length());
-		uint32_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_sb.name_len;
+		uint64_t buffer_index = DIR_SUPER_BLOCK_PLAIN_SIZE + dir_sb.name_len;
 		dir_sb.num_entries--;
 		dir_sb.serialize(&buffer[0]);
 
@@ -1145,7 +1153,7 @@ namespace ROCKSDB_NAMESPACE {
 
 		INode inode_tmp = ri_c.inode;
 		while (true) {
-			for (uint32_t i = 0; i < inode_tmp.num_disk_pointers; i++) {
+			for (uint64_t i = 0; i < inode_tmp.num_disk_pointers; i++) {
 				SetBlockType(inode_tmp.disk_pointers[i], BlockType::Unused);
 			}
 
@@ -1169,7 +1177,8 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::OverWriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer) {
-		uint32_t num_to_delete =
+		PROFILE_FUNCTION();
+		uint64_t num_to_delete =
 				closest_upper_multiple(zns_dev->lba_size_bytes, inode.inode.size) / zns_dev->lba_size_bytes;
 
 		INode inode_current = inode.inode;
@@ -1189,13 +1198,13 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		while (traversed_inode_vector.size() > 0 && num_to_delete > 0) { // remove the inode
-			uint32_t nr_for_delete = std::min(
+			uint64_t nr_for_delete = std::min(
 					num_to_delete,
 					traversed_inode_vector.back().inode.num_disk_pointers); // how many to delete from the current inode
 			num_to_delete -= nr_for_delete;
 			traversed_inode_vector.back().inode.num_disk_pointers -= nr_for_delete;
 
-			for (uint32_t i = 0; i < nr_for_delete; i++) {
+			for (uint64_t i = 0; i < nr_for_delete; i++) {
 				SetBlockType(traversed_inode_vector.back().inode.disk_pointers[i], BlockType::Unused);
 			}
 
@@ -1270,6 +1279,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::GetChildren(const std::string &dir, const IOOptions &options,
 									   std::vector<std::string> *result, __attribute__((unused)) IODebugContext *dbg) {
 		UNUSED(options);
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		const auto _dirname = SanitizePath(dir);
@@ -1280,7 +1290,7 @@ namespace ROCKSDB_NAMESPACE {
 		}
 		std::vector<DirectoryEntry> dir_list;
 		DirectorySuperBlock dir_sb;
-		uint32_t temp;
+		uint64_t temp;
 		ret = ReadDirectory(inode, dir_sb, dir_list, temp);
 		if (!ret.ok()) {
 			return ret;
@@ -1298,6 +1308,7 @@ namespace ROCKSDB_NAMESPACE {
 	//         IOError if an IO Error was encountered
 	IOStatus S2FileSystem::FileExists(const std::string &fname, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
+		PROFILE_FUNCTION();
 		INode inode;
 		INodePointer ptr;
 		auto const _fname = SanitizePath(fname);

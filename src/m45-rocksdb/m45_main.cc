@@ -34,6 +34,8 @@ SOFTWARE.
 
 #include "MyRocksContext.h"
 
+#include <visual_profiler.h>
+
 using namespace std;
 
 static std::string genrate_random_string(const int len) {
@@ -163,6 +165,7 @@ static void initialize_rocksdb_options(rocksdb::Options* options){
 // if the changes are not being picked up then you need to delete and reinstall the file
 // rm librocksdb.a; cp ../../../storage/rocksdb/librocksdb.a .
 int main(int argc, char **argv) {
+    VisualProfiler::Instance().beginSession("instrument");
     uint64_t start, end;
     start = microseconds_since_epoch();
     srand( (unsigned) time(nullptr) * getpid());

@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 	private:
 		INode root_inode;
 		INode curr_inode;
-		uint32_t ptr = 0;
-		uint32_t disk_ptr = 0;
+		uint64_t ptr = 0;
+		uint64_t disk_ptr = 0;
 		S2FileSystem *fs;
 		std::vector<uint8_t> buffer;
 		const struct user_zns_device *zns_dev;
@@ -65,7 +65,7 @@ namespace ROCKSDB_NAMESPACE {
 					  IODebugContext *dbg) const;
 
 	private:
-		std::vector<uint32_t> disk_pointers;
+		std::vector<uint64_t> disk_pointers;
 		INode root_inode;
 		S2FileSystem *fs;
 		const struct user_zns_device *zns_dev;

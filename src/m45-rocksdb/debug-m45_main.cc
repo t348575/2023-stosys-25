@@ -10,8 +10,6 @@ int main() {
     std::unique_ptr<rdb::FSSequentialFile> file;
     z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
     z.CreateDir("/a", rdb::IOOptions(), nullptr);
-    rdb::INode n;
-    z.ReadINode({.block=0,.offset=0}, n);
     z.CreateDirIfMissing("/b", rdb::IOOptions(), nullptr);
     z.CreateDirIfMissing("/a/b", rdb::IOOptions(), nullptr);
     z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);

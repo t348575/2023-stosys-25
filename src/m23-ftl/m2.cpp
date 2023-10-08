@@ -29,7 +29,7 @@ SOFTWARE.
 #include <cstring>
 #include "./zns_device.h"
 #include "../common/utils.h"
-#include "visual_profiler.h"
+#include "../common/visual_profiler.h"
 
 extern "C" {
 
