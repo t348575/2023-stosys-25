@@ -54,6 +54,7 @@ namespace ROCKSDB_NAMESPACE {
 		S2FileSystem *fs;
 		struct user_zns_device *zns_dev;
 		bool past_root = false;
+		bool has_read_last_block = false;
 	};
 
 	class RocksRandomAccessFile : public FSRandomAccessFile {

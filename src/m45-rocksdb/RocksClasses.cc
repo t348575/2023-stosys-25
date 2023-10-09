@@ -1,7 +1,7 @@
 #include "RocksClasses.h"
 
 #include <utils.h>
-#include <visual_profiler.h>
+#include <VisualProfiler.hpp>
 
 namespace ROCKSDB_NAMESPACE {
 	RocksSequentialFile::RocksSequentialFile(const INode root_inode, const struct user_zns_device *zns_dev,
@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 									   IODebugContext *dbg) {
 		UNUSED(options);
 		UNUSED(dbg);
-		PROFILE_SCOPE("RocksSequentialFile::Read");
+		PROFILE_SCOPE("fs", "RocksSequentialFile::Read");
 		uint64_t left = n;
 		while (left > 0) {
 			if (ptr == root_inode.size) {
@@ -80,7 +80,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus RocksWriteableFile::Append(const Slice &data, const IOOptions &options, IODebugContext *dbg) {
 		UNUSED(options);
 		UNUSED(dbg);
-		PROFILE_FUNCTION();
+		PROFILE_SCOPE("fs", "RocksWriteableFile::Append");
 		uint64_t left = data.size();
 		while (left > 0) {
 			const uint64_t last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
@@ -101,9 +101,12 @@ namespace ROCKSDB_NAMESPACE {
 
 			auto current_disk_ptr = current_inode->inode.disk_pointers[current_inode->inode.num_disk_pointers - 1];
 			if (last_block_leftover != 0) {
-				auto ret = fs->ReadBlock(current_disk_ptr, &buffer[0]);
-				if (!ret.ok()) {
-					return ret;
+				if (!has_read_last_block) {
+					has_read_last_block = true;
+					auto ret = fs->ReadBlock(current_disk_ptr, &buffer[0]);
+					if (!ret.ok()) {
+						return ret;
+					}
 				}
 
 				if (offset + op_size > zns_dev->lba_size_bytes) {
@@ -111,11 +114,12 @@ namespace ROCKSDB_NAMESPACE {
 				}
 
 				memcpy(&buffer[offset], data.data() + data.size() - left, op_size);
-				ret = fs->WriteBlock(current_disk_ptr, &buffer[0]);
+				auto ret = fs->WriteBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
 					return ret;
 				}
 			} else {
+				has_read_last_block = false;
 				uint8_t *buffer_to_use;
 				if (op_size < zns_dev->lba_size_bytes) {
 					memcpy(&buffer[0], (uint8_t *)data.data() + data.size() - left, op_size);
@@ -143,7 +147,7 @@ namespace ROCKSDB_NAMESPACE {
 	RocksRandomAccessFile::RocksRandomAccessFile(const INode root_inode, const struct user_zns_device *zns_dev,
 												 S2FileSystem *fs, IOStatus &init_status)
 		: root_inode(root_inode), fs(fs), zns_dev(zns_dev) {
-		PROFILE_FUNCTION();
+		PROFILE_SCOPE("fs", "RocksRandomAccessFile::RocksRandomAccessFile");
 		init_status = IOStatus::OK();
 		RichInode current_ri;
 		current_ri.inode = root_inode;
@@ -165,7 +169,7 @@ namespace ROCKSDB_NAMESPACE {
 										 char *scratch, IODebugContext *dbg) const {
 		UNUSED(options);
 		UNUSED(dbg);
-		PROFILE_SCOPE("RocksRandomAccessFile::Read");
+		PROFILE_SCOPE("fs", "RocksRandomAccessFile::Read");
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 

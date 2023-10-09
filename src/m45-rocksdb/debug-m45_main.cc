@@ -23,6 +23,15 @@ int main() {
         std::cout << "/a/" << t << std::endl;
     }
 
+    rdb::RichInode i, bi;
+    std::string bp;
+    rdb::S2FileSystem::FindInodeDirs ds;
+    z.FindInodeWithBaseWithDirs("/a", i, bi, bp, ds);
+    std::cout << "Children of / are: " << std::endl;
+    for (const auto &t: ds.dir_entries) {
+        std::cout << "/" << t.name << std::endl;
+    }
+
     std::unique_ptr<rdb::FSWritableFile> wr_file;
     if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
         std::cout << "Could not create writeable file" << std::endl;

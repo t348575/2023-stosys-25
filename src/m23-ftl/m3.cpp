@@ -35,8 +35,7 @@ SOFTWARE.
 #include <unistd.h>
 #include "zns_device.h"
 #include "../common/utils.h"
-#include "../common/visual_profiler.h"
-
+#include "../common/VisualProfiler.hpp"
 
 static int get_sequence_as_array (uint64_t capacity, uint64_t **arr, bool shuffle) {
     std::vector<uint64_t> myvector;
@@ -101,7 +100,6 @@ static int read_complete_file(int fd, uint64_t offset, void *buf, int sz){
 static int wr_full_device_verify(struct user_zns_device *dev,
                                  const uint64_t *addr_list, const uint32_t list_size,
                                  const uint32_t max_hammer_io){
-    PROFILE_FUNCTION();
     int ret;
     const char *tmp_file = "./tmp-output-fulld";
     char *b1 = (char*) calloc(1, dev->lba_size_bytes);
@@ -210,7 +208,8 @@ static int show_help(){
 }
 
 int main(int argc, char **argv) {
-    VisualProfiler::Instance().beginSession("instrument");
+    PROFILER_INIT();
+    VisualProfiler::Instance().beginSession();
     uint64_t start, end;
     start = microseconds_since_epoch();
     srand( (unsigned) time(NULL) * getpid());

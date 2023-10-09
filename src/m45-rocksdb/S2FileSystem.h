@@ -208,28 +208,39 @@ namespace ROCKSDB_NAMESPACE {
 
 		static std::string SanitizePath(const std::string input);
 		void SetBlockType(const uint16_t num, const BlockType block_type);
-		BlockType GetBlockType(const uint64_t num);
 		IOStatus WriteBlockMap();
 		IOStatus WriteSuperBlock();
 		IOStatus WriteBlock(const uint64_t block, const uint8_t *data);
 		IOStatus ReadBlock(const uint64_t block, uint8_t *data);
 		IOStatus RemoveInode(const INodePointer ptr);
 
-		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr);
-		IOStatus PlaceNewDataBlock(uint64_t &block_num);
+		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr, bool flush = true);
+		IOStatus PlaceNewDataBlock(uint64_t &block_num, bool flush = true);
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
 		IOStatus WriteINode(const RichInode ri, bool increment_count);
-		IOStatus FindInode(const std::string &path, INode &inode, INodePointer &ptr);
+
+		struct FindInodeDirs {
+			DirectorySuperBlock sb;
+			std::vector<DirectoryEntry> dir_entries;
+			uint64_t buffer_size;
+		};
+
+		IOStatus FindInode(const std::string &path, RichInode &inode);
+		IOStatus FindInodeWithBase(const std::string &path, RichInode &inode, RichInode &base_inode,
+								   std::string &base_path);
+		IOStatus FindInodeWithBaseWithDirs(const std::string &path, RichInode &inode, RichInode &base_inode,
+										   std::string &base_path, FindInodeDirs &dirs);
 		IOStatus AddDiskPointer(RichInode *inode, RichInode **output);
 
-		IOStatus CreateItem(const std::string &path, const S2EntryType item, INode &inode, INodePointer &ptr);
+		IOStatus CreateItem(const std::string &name, const S2EntryType item, const RichInode base_inode,
+							FindInodeDirs &dirs, RichInode &inode);
 		IOStatus ReadEntireFile(const INode inode, std::vector<uint8_t> &output);
 		IOStatus OverWriteEntireFile(const RichInode inode, const std::vector<uint8_t> &buffer);
 		IOStatus ReadDirectory(const INode inode, DirectorySuperBlock &dir_super_block,
 							   std::vector<DirectoryEntry> &directory, uint64_t &buffer_size);
-		IOStatus AddEntryToDirectory(const INode base_node, const INodePointer base_ptr, DirectoryEntry entry,
-									 INode &node, INodePointer &ptr);
-		IOStatus RemoveItem(const std::string path, const RichInode ri);
+		IOStatus AddEntryToDirectory(const RichInode base_inode, FindInodeDirs &dirs, DirectoryEntry entry,
+									 RichInode &inode);
+		IOStatus RemoveItem(const std::string path, const std::string base_path, const RichInode ri);
 		RocksWriteableFile NewWritableFileByINode(const RichInode rich_inode);
 
 	private:

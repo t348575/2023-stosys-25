@@ -170,16 +170,17 @@ uint64_t closest_upper_multiple(uint64_t x, uint64_t n) {
 
 uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
-std::vector<std::string> split(const std::string &input, const std::string &delimiter) {
-	std::vector<std::string> result;
-	uint64_t start = 0;
-	for (uint64_t found = input.find(delimiter); found != std::string::npos; found = input.find(delimiter, start)) {
-		result.emplace_back(input.begin() + start, input.begin() + found);
-		start = found + delimiter.size();
+std::string get_base_path(const std::string path) {
+	auto const idx = path.find_last_of("/");
+	std::string base_path;
+	if (idx == std::string::npos) {
+		base_path = path;
+	} else {
+		base_path = path.substr(0, idx + 1);
 	}
 
-	if (start != input.size()) {
-		result.emplace_back(input.begin() + start, input.end());
+	if (base_path.length() > 1 && base_path.back() == '/') {
+		base_path.pop_back();
 	}
-	return result;
+	return base_path;
 }

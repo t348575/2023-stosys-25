@@ -33,9 +33,11 @@ SOFTWARE.
 
 #include "../common/unused.h"
 #include "../common/utils.h"
-#include "../common/visual_profiler.h"
 #include "ftl.h"
 #include "zns_device.h"
+#include "../common/VisualProfiler.hpp"
+
+#define PROFILE_NVME_FUNCTION() PROFILE_FUNCTION_CATEGORY("nvme")
 
 inline int ss_nvme_device_read(int fd, uint32_t nsid, uint64_t slba, uint16_t numbers, void *buffer,
 							   uint64_t buf_size) {
@@ -49,7 +51,7 @@ inline int ss_nvme_device_write(int fd, uint32_t nsid, uint64_t slba, uint16_t n
 }
 
 inline int ss_zns_device_zone_reset(uint64_t slba) {
-	PROFILE_FUNCTION();
+	PROFILE_SCOPE("nvme", "ss_zns_device_zone_reset");
 	auto const records = DataMap::get_instance();
 	return nvme_zns_mgmt_send(records->dd->fd, records->dd->nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
 }
@@ -57,7 +59,7 @@ inline int ss_zns_device_zone_reset(uint64_t slba) {
 typedef int (*nvme_op)(int, uint32_t, uint64_t, uint16_t, void *, uint64_t);
 inline int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf_size, bool read) {
 	std::string name = "mdts_" + std::string(read ? "read" : "write") + "_" + std::to_string(buf_size);
-	PROFILE_SCOPE(name);
+	PROFILE_SCOPE("nvme", name.c_str());
 	uint16_t numbers;
 	int ret = 0;
 	uint64_t size = buf_size;
@@ -221,7 +223,7 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 }
 
 void try_logical_conversion() {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	for (uint64_t j = 0; j < records->log_zones.size(); j++) {
 		if (records->log_zones[j].logs.size() != records->dd->zone_size) {
@@ -254,14 +256,12 @@ void try_logical_conversion() {
 			if (ret != 0) {
 				std::cerr << "ERROR: could not reset log zone in logical conversion" << std::endl;
 			}
-
-			break;
 		}
 	}
 }
 
 void reclaim_empty_log_zones() {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	for (auto &t : records->log_zones) {
 		if (t.zone_size == records->dd->zone_size && t.logs.size() == 0) {
@@ -277,7 +277,7 @@ void reclaim_empty_log_zones() {
 }
 
 uint64_t full_merge() {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	const auto count = records->count_base_addresses();
 	if (count.size() == 0) {
@@ -376,7 +376,7 @@ uint64_t full_merge() {
 }
 
 uint64_t merge_log_zones() {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	uint64_t idx[2];
 	uint64_t sum_size = 0;
@@ -455,7 +455,7 @@ uint64_t merge_log_zones() {
 
 void reorder_write_seq_log_zone() {
 #ifdef PREFER_SEQ_LOG
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	std::vector<uint8_t> data_buffer, log_buffer;
 	for (uint64_t i = 0; i < records->log_zones.size(); i++) {
@@ -520,13 +520,12 @@ void reorder_write_seq_log_zone() {
 }
 
 void gc() {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	records->log_mtx.lock();
 	records->data_mtx.lock();
 
 	try_logical_conversion();
-	reclaim_empty_log_zones();
 	reorder_write_seq_log_zone();
 	reclaim_empty_log_zones();
 
@@ -545,7 +544,7 @@ void gc() {
 void gc_loop() {
 	auto const records = DataMap::get_instance();
 	while (records->should_run_gc) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(30));
 
 		records->log_mtx.lock_shared();
 		uint64_t num_free_log_pages = records->count_free_log_pages();
@@ -561,7 +560,7 @@ void gc_loop() {
 }
 
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	UNUSED(my_dev);
 	auto const records = DataMap::get_instance();
 	records->log_mtx.lock_shared();
@@ -622,7 +621,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 }
 
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size) {
-	PROFILE_FUNCTION();
+	PROFILE_NVME_FUNCTION();
 	auto const records = DataMap::get_instance();
 	UNUSED(my_dev);
 	records->log_mtx.lock();

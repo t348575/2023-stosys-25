@@ -29,12 +29,11 @@ SOFTWARE.
 #include <cstring>
 #include "./zns_device.h"
 #include "../common/utils.h"
-#include "../common/visual_profiler.h"
+#include "../common/VisualProfiler.hpp"
 
 extern "C" {
 
 static int test_write_read_random_LBAs(struct user_zns_device *my_dev, void *buf, uint32_t buf_size, uint64_t max_lbas_to_test){
-    PROFILE_FUNCTION();
     int ret = -1;
     uint32_t max_lba_entries = my_dev->capacity_bytes / my_dev->lba_size_bytes;
     if(max_lba_entries < max_lbas_to_test){
@@ -74,7 +73,6 @@ static int test_write_read_random_LBAs(struct user_zns_device *my_dev, void *buf
 }
 
 static int test_write_read_LBA0(struct user_zns_device *dev, void *buf, uint32_t buf_size){
-    PROFILE_FUNCTION();
     write_pattern((char*) buf, buf_size);
     uint64_t test_lba = 0;
     int ret = zns_udevice_write(dev, test_lba, buf, buf_size);
@@ -112,7 +110,8 @@ static int show_help(){
 }
 
 int main(int argc, char **argv) {
-    VisualProfiler::Instance().beginSession("instrument");
+    PROFILER_INIT();
+    VisualProfiler::Instance().beginSession();
     uint64_t start, end;
     start = microseconds_since_epoch();
     srand( (unsigned) time(NULL) * getpid());

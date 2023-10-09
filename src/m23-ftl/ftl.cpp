@@ -1,15 +1,18 @@
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 
-#include "../common/visual_profiler.h"
+#include "../common/VisualProfiler.hpp"
 #include "ftl.h"
+
+#define PROFILE_FTL_FUNCTION() PROFILE_FUNCTION_CATEGORY("ftl")
 
 DataMap *DataMap::records = nullptr;
 
 inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
 inline int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	return nvme_zns_mgmt_send(fd, nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
 }
 
@@ -20,7 +23,7 @@ bool DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 
 	device = _device;
 	dd = _dd;
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	log_zones.reserve(device->tparams.zns_num_zones);
 	uint32_t i = 0;
 	for (; i < dd->log_zones; i++) {
@@ -40,13 +43,13 @@ bool DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 }
 
 void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	log_zones[idx].logs.push_back(record);
 	log_zones[idx].zone_size++;
 }
 
 uint64_t DataMap::get_free_log_zone(const uint64_t address, int &index) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	auto const size = log_zones.size();
 #ifdef PREFER_SEQ_LOG
 	auto const base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, address);
@@ -88,7 +91,7 @@ uint64_t DataMap::get_free_log_zone(const uint64_t address, int &index) {
 }
 
 uint64_t DataMap::count_free_log_pages() {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	uint64_t count = 0;
 	for (const auto &t : log_zones) {
 		count += dd->zone_size - t.zone_size;
@@ -97,7 +100,7 @@ uint64_t DataMap::count_free_log_pages() {
 }
 
 std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	std::vector<struct count_base_address_sums> sums;
 	sums.reserve(dd->log_zones * dd->zone_size);
 	for (const auto &outer : log_zones) {
@@ -124,7 +127,7 @@ std::vector<struct count_base_address_sums> DataMap::count_base_addresses() {
 }
 
 std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	std::vector<struct count_base_address_sums> sums;
 	sums.reserve(logs.size());
 	for (const auto &t : logs) {
@@ -149,7 +152,7 @@ std::vector<struct count_base_address_sums> LogRecord::count_base_addresses() {
 }
 
 std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_address, const bool simulate) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	std::vector<ftl_record> removing;
 	removing.reserve(logs.size());
 	for (uint64_t i = 0; i < logs.size(); i++) {
@@ -165,7 +168,7 @@ std::vector<ftl_record> LogRecord::remove_base_address(const uint64_t base_addre
 }
 
 bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64_t &idx) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	for (uint64_t i = 0; i < data_zones.size(); i++) {
 		if (data_zones[i].record.base_address == l_address) {
 			if (data_zones[i].record.flag == status_flag::Invalid) {
@@ -182,7 +185,7 @@ bool DataMap::get_data_zone(const uint64_t l_address, ftl_record &record, uint64
 }
 
 bool DataMap::remove_unused_data_zone(const uint64_t base_address, ftl_record &record) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	for (uint64_t i = 0; i < data_zones.size(); i++) {
 		if (data_zones[i].record.base_address == base_address) {
 			record = data_zones[i].record;
@@ -194,7 +197,7 @@ bool DataMap::remove_unused_data_zone(const uint64_t base_address, ftl_record &r
 }
 
 bool DataMap::find_in_log(const uint64_t address, ftl_record &record) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	for (auto &t : log_zones) {
 		for (const auto &inner : t.logs) {
 			if (inner.l_address == address) {
@@ -208,7 +211,7 @@ bool DataMap::find_in_log(const uint64_t address, ftl_record &record) {
 }
 
 bool DataMap::find_in_data(const uint64_t address, ftl_record &record) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	const auto base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, address);
 	for (auto &t : data_zones) {
 		if (t.record.base_address == base_address && t.record.flag == status_flag::Valid) {
@@ -224,7 +227,7 @@ bool DataMap::find_in_data(const uint64_t address, ftl_record &record) {
 void DataMap::set_data_zone(const uint64_t idx, const ftl_record record) { data_zones[idx].record = record; }
 
 void DataMap::delete_from_log_if_exists(const uint64_t address) {
-	PROFILE_FUNCTION();
+	PROFILE_FTL_FUNCTION();
 	for (auto &t : log_zones) {
 		for (uint64_t i = 0; i < t.logs.size(); i++) {
 			if (t.logs[i].l_address == address) {

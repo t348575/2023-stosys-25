@@ -44,7 +44,7 @@ void u16_to_buffer(const uint16_t value, uint8_t *output);
 
 uint64_t closest_upper_multiple(uint64_t n, uint64_t x);
 uint64_t closest_lower_multiple(uint64_t n, uint64_t x);
-std::vector<std::string> split(const std::string &input, const std::string &delimiter);
+std::string get_base_path(const std::string path);
 }
 
 uint64_t microseconds_since_epoch();

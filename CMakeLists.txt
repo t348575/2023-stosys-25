@@ -36,6 +36,7 @@ set(STOSYS_M45 ON)
 set(STOSYS_FS_DEBUG OFF)
 set(STOSYS_CMAKE_DEBUG OFF)
 set(STOSYS_ASAN OFF)
+set(STOSYS_PROFILING OFF)
 
 find_package(PkgConfig REQUIRED)
 if(NOT PKG_CONFIG_FOUND)
@@ -57,8 +58,9 @@ set(CMAKE_BUILD_TYPE Debug) # or debug if you need to use gdb on it.
 # Some how g++ has better performance than clang++. Of course I don't know all flags for clang++.
 set(CMAKE_CXX_COMPILER g++) # or clang++
 #set(CMAKE_CXX_COMPILER clang++) # or clang++
+# add_link_options("-B/usr/local/libexec/mold")
 message("compiler is ${CMAKE_CXX_COMPILER_ID}   and name is ${CMAKE_CXX_COMPILER}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Wl,--no-as-needed -Wall -Wextra -Wundef")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto -O3 -Wl,--no-as-needed -Wall -Wextra -Wundef")
 # optimization flags
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Ofast -ffast-math -funroll-loops -march=native") # get crazy here
 # debug flags, needs a bit of customization
@@ -85,6 +87,12 @@ if (STOSYS_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -fsanitize=float-divide-by-zero -fsanitize=float-cast-overflow -fno-sanitize=null -fno-sanitize=alignment")
 endif()
 
+if (STOSYS_PROFILING)
+    add_definitions(-DPROFILING=1)
+    include_directories(${CMAKE_PREFIX_PATH}/perfetto/sdk)
+    add_library(perfetto SHARED ${CMAKE_PREFIX_PATH}/perfetto/sdk/perfetto.cc)
+endif()
+
 include(GNUInstallDirs)
 include_directories (${NVME_INCLUDE_DIRS})
 link_directories (${NVME_LIBRARY_DIRS} )
@@ -103,7 +111,12 @@ src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
 
-target_link_libraries(stosys ${NVME_LIBRARIES})
+if (STOSYS_PROFILING)
+    target_sources(stosys PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
+    target_link_libraries(stosys perfetto)
+endif()
+
+target_link_libraries(stosys pthread ${NVME_LIBRARIES})
 set_target_properties(stosys PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(stosys PROPERTIES SOVERSION 1)
 
@@ -124,10 +137,18 @@ install(TARGETS stosys
 add_executable(m2 src/m23-ftl/m2.cpp)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys)
+if (STOSYS_PROFILING)
+    target_sources(m2 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
+    target_link_libraries(m2 perfetto)
+endif()
 
 add_executable(m3 src/m23-ftl/m3.cpp)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys)
+if (STOSYS_PROFILING)
+    target_sources(m3 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
+    target_link_libraries(m3 perfetto)
+endif()
 
 # starting here, we need more setup for RocksDB
 if(STOSYS_M45)
@@ -155,6 +176,11 @@ if(STOSYS_M45)
         src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
         src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
         src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
+    endif()
+
+    if (STOSYS_PROFILING)
+        target_sources(m45 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
+        target_link_libraries(m45 perfetto)
     endif()
 
     # see all the defined variables here: https://cmake.org/cmake/help/latest/module/FindPkgConfig.html
