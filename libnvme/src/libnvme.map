@@ -260,6 +260,7 @@
 		nvme_open;
 		nvme_scan_namespace;
 		nvme_free_ns;
+		nvme_zns_report_zones;
 	local:
 		*;
 };

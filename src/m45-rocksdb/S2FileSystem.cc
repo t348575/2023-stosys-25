@@ -350,7 +350,8 @@ namespace ROCKSDB_NAMESPACE {
 		for (uint64_t i = 0; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const block_num = (i * 4) + j;
-				BlockType const block_type = (S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[block_num / 4] >> (block_num % 4) * 2);
+				BlockType const block_type =
+						(S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[block_num / 4] >> (block_num % 4) * 2);
 				switch (block_type) {
 				case BlockType::Inode: {
 					auto ret = ReadBlock(block_num, &buffer[0]);
@@ -402,7 +403,8 @@ namespace ROCKSDB_NAMESPACE {
 		for (uint64_t i = super_block.original_inode_reserved / 4; i < block_map.size(); i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const t_block_num = (i * 4) + j;
-				BlockType const block_type = (S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[t_block_num / 4] >> (t_block_num % 4) * 2);
+				BlockType const block_type = (S2FileSystem::BlockType)(
+						BLOCK_BIT_MASKS[0] & block_map[t_block_num / 4] >> (t_block_num % 4) * 2);
 				if (block_type == BlockType::Unused) {
 					SetBlockType(t_block_num, BlockType::Data);
 					if (flush) {
@@ -598,7 +600,7 @@ namespace ROCKSDB_NAMESPACE {
 		return WriteBlock(ptr.block, &buffer[0]);
 	}
 
-	S2FileSystem::~S2FileSystem() {}
+	S2FileSystem::~S2FileSystem() { deinit_ss_zns_device(device->device); }
 
 	// Create a brand new sequentially-readable file with the specified name.
 	// On success, stores a pointer to the new file in *result and returns OK.

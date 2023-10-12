@@ -31,11 +31,11 @@ SOFTWARE.
 #include <thread>
 #include <unistd.h>
 
+#include "../common/VisualProfiler.hpp"
 #include "../common/unused.h"
 #include "../common/utils.h"
 #include "ftl.h"
 #include "zns_device.h"
-#include "../common/VisualProfiler.hpp"
 
 #define PROFILE_NVME_FUNCTION() PROFILE_FUNCTION_CATEGORY("nvme")
 
@@ -57,7 +57,7 @@ inline int ss_zns_device_zone_reset(uint64_t slba) {
 }
 
 typedef int (*nvme_op)(int, uint32_t, uint64_t, uint16_t, void *, uint64_t);
-inline int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf_size, bool read) {
+int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf_size, bool read) {
 	std::string name = "mdts_" + std::string(read ? "read" : "write") + "_" + std::to_string(buf_size);
 	PROFILE_SCOPE("nvme", name.c_str());
 	uint16_t numbers;
@@ -151,6 +151,8 @@ int deinit_ss_zns_device(struct user_zns_device *my_dev) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
+	DataMap::get_instance()->write_metadata();
+
 	free(my_dev->_private);
 	free(my_dev);
 	return 0;
@@ -212,9 +214,7 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->log_zones = params->log_zones;
 	dd->n_zones = zones.nr_zones - params->log_zones;
 
-	if (DataMap::get_instance()->init(*my_dev, dd)) {
-		return 0;
-	}
+	DataMap::get_instance()->init(*my_dev, dd);
 
 	std::thread t1(gc_loop);
 	t1.detach();
@@ -463,9 +463,9 @@ void reorder_write_seq_log_zone() {
 			continue;
 		}
 
-		if (records->log_zones[i].logs.size() < records->dd->zone_size * 0.75) {
-			continue;
-		}
+		// if (records->log_zones[i].logs.size() < records->dd->zone_size * 0.75) {
+		// 	continue;
+		// }
 
 		data_buffer.resize(records->device->tparams.zns_zone_capacity);
 		log_buffer.resize(records->device->tparams.zns_zone_capacity);
@@ -511,10 +511,10 @@ void reorder_write_seq_log_zone() {
 		records->log_zones[i].is_seq = false;
 		records->log_zones[i].logs.clear();
 
-		uint64_t num_free_log_pages = records->count_free_log_pages();
-		if (num_free_log_pages / records->dd->zone_size > records->dd->gc_wmark) {
-			return;
-		}
+		// uint64_t num_free_log_pages = records->count_free_log_pages();
+		// if (num_free_log_pages / records->dd->zone_size > records->dd->gc_wmark) {
+		// 	return;
+		// }
 	}
 #endif
 }
@@ -525,8 +525,8 @@ void gc() {
 	records->log_mtx.lock();
 	records->data_mtx.lock();
 
-	try_logical_conversion();
 	reorder_write_seq_log_zone();
+	try_logical_conversion();
 	reclaim_empty_log_zones();
 
 	uint64_t count = 0;

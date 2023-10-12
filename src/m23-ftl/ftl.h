@@ -15,7 +15,7 @@
 
 #define PREFER_SEQ_LOG
 #define USE_CACHE
-#define READ_CACHE_SIZE 1024
+#define READ_CACHE_SIZE 64
 
 enum status_flag : uint8_t { Valid = 0, Invalid = 2 };
 
@@ -57,7 +57,7 @@ public:
 		return records;
 	}
 
-	bool init(const struct user_zns_device *_device, const struct device_data *_dd);
+	void init(struct user_zns_device *_device, const struct device_data *_dd);
 	bool find_in_log(const uint64_t address, ftl_record &record);
 	bool find_in_data(const uint64_t address, ftl_record &record);
 	void add_or_update(const uint64_t idx, const ftl_record record);
@@ -67,17 +67,18 @@ public:
 	bool remove_unused_data_zone(const uint64_t base_address, ftl_record &record);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
 	void delete_from_log_if_exists(const uint64_t address);
+	void write_metadata(std::string file_name = "write");
+	void read_metadata();
 	std::vector<struct count_base_address_sums> count_base_addresses();
 
 	std::vector<LogRecord> log_zones;
 	std::vector<DataRecord> data_zones;
-	const struct user_zns_device *device;
+	struct user_zns_device *device;
 	const struct device_data *dd;
 	std::shared_mutex data_mtx, log_mtx;
 	std::atomic<uint64_t> write_counter;
 	bool should_run_gc = true;
 	bool gc_exited = false;
-	bool has_been_initialized = false;
 	static DataMap *records;
 
 	struct ReadCacheEntry {
@@ -87,6 +88,13 @@ public:
 		bool is_valid = false;
 	};
 	std::array<ReadCacheEntry, READ_CACHE_SIZE> read_cache;
+	void init_cache() {
+		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
+			ReadCacheEntry r = {.buffer = std::vector<uint8_t>(), .address = 0, .is_valid = false};
+			r.buffer.resize(device->lba_size_bytes);
+			read_cache[i] = r;
+		}
+	}
 	void cache(const uint64_t address, const char *buffer) {
 #ifdef USE_CACHE
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {

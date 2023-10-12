@@ -101,6 +101,7 @@ int init_ss_zns_device(struct zdev_init_params *, struct user_zns_device **my_de
 int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *buffer, uint32_t size);
 int deinit_ss_zns_device(struct user_zns_device *my_dev);
+int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf_size, bool read);
 
 void gc_loop();
 

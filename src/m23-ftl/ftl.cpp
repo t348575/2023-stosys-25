@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "../common/VisualProfiler.hpp"
+#include "../common/utils.h"
 #include "ftl.h"
 
 #define PROFILE_FTL_FUNCTION() PROFILE_FUNCTION_CATEGORY("ftl")
@@ -16,35 +17,114 @@ inline int ss_zns_device_zone_reset(int fd, uint32_t nsid, uint64_t slba) {
 	return nvme_zns_mgmt_send(fd, nsid, slba, false, NVME_ZNS_ZSA_RESET, 0, nullptr);
 }
 
-bool DataMap::init(const user_zns_device *_device, const device_data *_dd) {
-	if (has_been_initialized) {
-		return true;
-	}
-
+void DataMap::init(user_zns_device *_device, const device_data *_dd) {
+	PROFILE_FTL_FUNCTION();
 	device = _device;
 	dd = _dd;
-	PROFILE_FTL_FUNCTION();
-	log_zones.reserve(device->tparams.zns_num_zones);
-	uint32_t i = 0;
-	for (; i < dd->log_zones; i++) {
-		log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
-		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
-	}
-	for (uint32_t j = 0; i < device->tparams.zns_num_zones; i++, j++) {
-		data_zones.push_back(DataRecord({.l_address = 0,
-										 .p_address = i * dd->zone_size,
-										 .base_address = j * device->tparams.zns_zone_capacity,
-										 .flag = status_flag::Invalid}));
-		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
-	}
-	for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
-		ReadCacheEntry r = {.buffer = std::vector<uint8_t>(), .address = 0, .is_valid = false};
-		r.buffer.resize(device->lba_size_bytes);
-		read_cache[i] = r;
+
+	const uint64_t size_zone_report = sizeof(nvme_zone_report) + device->tparams.zns_num_zones * sizeof(nvme_zns_desc);
+	std::vector<uint8_t> zone_report;
+	zone_report.resize(size_zone_report);
+	int ret = nvme_zns_report_zones(dd->fd, dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, size_zone_report,
+									&zone_report[0]);
+	if (ret != 0) {
+		std::cerr << "ERROR: could not get report-zones: " << nvme_status_to_string(ret, false) << std::endl;
 	}
 
-	has_been_initialized = true;
-	return false;
+	struct nvme_zone_report *r = (nvme_zone_report *)&zone_report[0];
+	struct nvme_zns_desc *desc = (nvme_zns_desc *)(&zone_report[0] + sizeof(*r));
+
+	log_zones.reserve(dd->log_zones - 1);
+
+	// fresh start
+	if (desc->wp == 0) {
+		uint32_t i = 1;
+		for (; i < dd->log_zones; i++) {
+			log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
+		}
+		for (uint32_t j = 0; i < device->tparams.zns_num_zones; i++, j++) {
+			data_zones.push_back(DataRecord({.l_address = 0,
+											 .p_address = i * dd->zone_size,
+											 .base_address = j * device->tparams.zns_zone_capacity,
+											 .flag = status_flag::Invalid}));
+		}
+		init_cache();
+		return;
+	}
+
+	std::vector<uint8_t> metadata_zone;
+	metadata_zone.resize(device->tparams.zns_zone_capacity);
+	ret = ss_nvme_device_io_with_mdts(0, &metadata_zone[0], device->tparams.zns_zone_capacity, true);
+	if (ret != 0) {
+		std::cerr << "ERROR: could not read metadata zone: " << nvme_status_to_string(ret, false) << std::endl;
+	}
+
+	const uint64_t num_blocks = u64_from_buffer(&metadata_zone[(desc->wp * device->lba_size_bytes) - 8]);
+	uint64_t buffer_ptr = (desc->wp * device->lba_size_bytes) - (num_blocks * device->lba_size_bytes);
+
+	for (uint64_t i = 0; i < dd->n_zones; i++) {
+		ftl_record record;
+		record.flag = (status_flag)metadata_zone[buffer_ptr];
+		record.base_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
+		record.p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
+		data_zones.push_back(DataRecord(record));
+		buffer_ptr += 17;
+	}
+
+	for (uint64_t i = 0; i < dd->log_zones - 1; i++) {
+		const bool is_seq = (bool)metadata_zone[buffer_ptr];
+		if (is_seq) {
+			const uint64_t base_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
+			const uint64_t p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
+			buffer_ptr += 17;
+
+			log_zones.push_back(LogRecord(p_address, dd->zone_size));
+			const uint64_t zone_num = p_address / dd->zone_size;
+
+			log_zones[i].write_ptr =
+					((struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*desc)))->wp;
+			if (log_zones[i].write_ptr == 0xFFFFFFFFFFFFFFFF) {
+				log_zones[i].write_ptr = (zone_num + 1) * dd->zone_size;
+			}
+			log_zones[i].zone_size = log_zones[i].write_ptr - p_address;
+			log_zones[i].base_address = base_address;
+
+			log_zones[i].is_seq = true;
+			for (uint64_t j = 0; j < log_zones[i].zone_size; j++) {
+				log_zones[i].logs.push_back({.l_address = base_address + (j * device->lba_size_bytes),
+											 .p_address = p_address + j,
+											 .base_address = base_address,
+											 .flag = status_flag::Valid});
+			}
+		} else {
+			const uint64_t p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
+			const uint64_t log_size = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
+			buffer_ptr += 17;
+
+			log_zones.push_back(LogRecord(p_address, dd->zone_size));
+			const uint64_t zone_num = p_address / dd->zone_size;
+
+			log_zones[i].write_ptr =
+					((struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*desc)))->wp;
+			if (log_zones[i].write_ptr == 0xFFFFFFFFFFFFFFFF) {
+				log_zones[i].write_ptr = (zone_num + 1) * dd->zone_size;
+			}
+			log_zones[i].zone_size = log_zones[i].write_ptr - p_address;
+
+			for (uint64_t j = 0; j < log_size; j++) {
+				const uint64_t l_address = u64_from_buffer(&metadata_zone[buffer_ptr]);
+				const uint64_t inner_p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 8]);
+				buffer_ptr += 16;
+
+				log_zones[i].logs.push_back(
+						{.l_address = l_address,
+						 .p_address = inner_p_address,
+						 .base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, l_address),
+						 .flag = status_flag::Valid});
+			}
+		}
+	}
+	init_cache();
 }
 
 void DataMap::add_or_update(const uint64_t idx, const ftl_record record) {
@@ -242,4 +322,72 @@ void DataMap::delete_from_log_if_exists(const uint64_t address) {
 			}
 		}
 	}
+}
+
+void DataMap::write_metadata(std::string file_name) {
+	records->log_mtx.lock();
+	records->data_mtx.lock();
+	nvme_zone_report zone_report;
+	int ret = nvme_zns_report_zones(dd->fd, dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, sizeof(zone_report),
+									&zone_report);
+	const nvme_zns_desc *zone_desc = (struct nvme_zns_desc *)(void *)&zone_report;
+
+	uint64_t bytes_needed = 0;
+	for (const auto &lz : log_zones) {
+		bytes_needed++;
+		if (lz.is_seq) {
+			bytes_needed += 16;
+		} else {
+			bytes_needed += (lz.logs.size() * 2 * 16) + 16;
+		}
+	}
+
+	bytes_needed += dd->n_zones * 17;
+	bytes_needed += 8;
+
+	const uint64_t blocks_needed =
+			closest_upper_multiple(device->lba_size_bytes, bytes_needed) / device->lba_size_bytes;
+	if (zone_desc->wp + blocks_needed >= dd->zone_size) {
+		ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, 1);
+		if (ret != 0) {
+			std::cerr << "ERROR: Could not reset metadata zone: " << nvme_status_to_string(ret, false) << std::endl;
+			return;
+		}
+	}
+
+	std::vector<uint8_t> buffer;
+	buffer.resize(blocks_needed * device->lba_size_bytes);
+	uint64_t buffer_ptr = 0;
+	for (auto const &dz : data_zones) {
+		buffer[buffer_ptr] = dz.record.flag;
+		u64_to_buffer(dz.record.base_address, &buffer[buffer_ptr + 1]);
+		u64_to_buffer(dz.record.p_address, &buffer[buffer_ptr + 9]);
+		buffer_ptr += 17;
+	}
+
+	for (auto const &lz : log_zones) {
+		buffer[buffer_ptr] = lz.is_seq;
+		if (lz.is_seq) {
+			u64_to_buffer(lz.base_address, &buffer[buffer_ptr + 1]);
+			u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 9]);
+			buffer_ptr += 17;
+		} else {
+			u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 1]);
+			u64_to_buffer(lz.logs.size(), &buffer[buffer_ptr + 9]);
+			buffer_ptr += 17;
+			for (auto const &entry : lz.logs) {
+				u64_to_buffer(entry.l_address, &buffer[buffer_ptr]);
+				u64_to_buffer(entry.p_address, &buffer[buffer_ptr + 8]);
+				buffer_ptr += 16;
+			}
+		}
+	}
+	u64_to_buffer(blocks_needed, &buffer[buffer.size() - 8]);
+	ret = ss_nvme_device_io_with_mdts(zone_desc->wp, &buffer[0], buffer.size(), false);
+	if (ret != 0) {
+		std::cerr << "ERROR: could not write metadata to disk: " << nvme_status_to_string(ret, false) << std::endl;
+	}
+
+	records->log_mtx.unlock();
+	records->data_mtx.unlock();
 }
