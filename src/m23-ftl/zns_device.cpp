@@ -572,6 +572,13 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 		uint64_t op_size;
 		ftl_record record, next_record;
 
+		if (records->get_from_cache(address, (char *)buffer + (size - size_c))) {
+			op_size = records->device->lba_size_bytes;
+			size_c -= op_size;
+			address += size - size_c;
+			continue;
+		}
+
 		bool in_log = true;
 		if (records->find_in_log(address, record)) {
 			in_log = true;
@@ -587,7 +594,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 		uint64_t base_p_address = closest_lower_multiple(records->dd->zone_size, record.p_address);
 
 		uint64_t next_address = address;
-		while (is_next_address_in_same && next_address <= end_address) {
+		while (is_next_address_in_same && next_address < end_address) {
 			next_address += records->device->lba_size_bytes;
 			if (in_log) {
 				if (!records->find_in_log(next_address, next_record)) {
@@ -657,6 +664,7 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 									.p_address = records->log_zones[zone_idx].write_ptr + i,
 									.base_address = base_address,
 									.flag = status_flag::Valid});
+			records->cache(l_address, (char *)buffer + (size - size_c) + (i * records->device->lba_size_bytes));
 		}
 		records->log_zones[zone_idx].write_ptr += num_operations;
 		size_c -= op_size;

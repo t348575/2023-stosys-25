@@ -122,7 +122,7 @@ namespace ROCKSDB_NAMESPACE {
 		params.name = (char *)device.c_str();
 		params.log_zones = 32;
 		params.gc_wmark = 1;
-		params.force_reset = false;
+		params.force_reset = true;
 		int ret = init_ss_zns_device(&params, &this->zns_dev);
 		if (ret != 0) {
 			std::cout << "Error: " << uri_db_path << " failed to open the device " << device.c_str() << "\n";
@@ -533,12 +533,6 @@ namespace ROCKSDB_NAMESPACE {
 			return ret;
 		}
 
-		if (inode.inode.inode_type == S2EntryType::File) {
-			auto file = NewWritableFileByINode(inode);
-			const char *null_char = "\n";
-			Slice s(null_char, 1);
-			return file.Append(s, IOOptions(), nullptr);
-		}
 		return IOStatus::OK();
 	}
 

@@ -13,7 +13,9 @@
 #include "../common/unused.h"
 #include "zns_device.h"
 
-// #define PREFER_SEQ_LOG
+#define PREFER_SEQ_LOG
+#define USE_CACHE
+#define READ_CACHE_SIZE 1024
 
 enum status_flag : uint8_t { Valid = 0, Invalid = 2 };
 
@@ -77,6 +79,57 @@ public:
 	bool gc_exited = false;
 	bool has_been_initialized = false;
 	static DataMap *records;
+
+	struct ReadCacheEntry {
+		std::vector<uint8_t> buffer;
+		uint64_t address;
+		uint64_t access_count = 0;
+		bool is_valid = false;
+	};
+	std::array<ReadCacheEntry, READ_CACHE_SIZE> read_cache;
+	void cache(const uint64_t address, const char *buffer) {
+#ifdef USE_CACHE
+		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
+			if (read_cache[i].is_valid && read_cache[i].address == address) {
+				memcpy(&read_cache[i].buffer[0], buffer, device->lba_size_bytes);
+				return;
+			}
+		}
+
+		uint32_t i = 0;
+		uint32_t smallest_index = 0;
+		uint64_t smallest = std::string::npos;
+		for (; i < READ_CACHE_SIZE; i++) {
+			if (read_cache[i].access_count < smallest) {
+				smallest = read_cache[i].access_count;
+				smallest_index = i;
+			}
+
+			if (!read_cache[i].is_valid) {
+				read_cache[i].address = address;
+				read_cache[i].access_count = 0;
+				read_cache[i].is_valid = true;
+				memcpy(&read_cache[i].buffer[0], buffer, device->lba_size_bytes);
+				return;
+			}
+		}
+
+		read_cache[smallest_index].address = address;
+		read_cache[smallest_index].access_count = 0;
+		memcpy(&read_cache[smallest_index].buffer[0], buffer, device->lba_size_bytes);
+#endif
+	}
+	bool get_from_cache(const uint64_t address, char *buffer) {
+#ifdef USE_CACHE
+		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
+			if (read_cache[i].is_valid && read_cache[i].address == address) {
+				memcpy(buffer, &read_cache[i].buffer[0], device->lba_size_bytes);
+				return true;
+			}
+		}
+#endif
+		return false;
+	}
 };
 
 #endif

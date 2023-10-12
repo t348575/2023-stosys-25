@@ -37,6 +37,11 @@ bool DataMap::init(const user_zns_device *_device, const device_data *_dd) {
 										 .flag = status_flag::Invalid}));
 		ss_zns_device_zone_reset(dd->fd, dd->nsid, i * dd->zone_size);
 	}
+	for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
+		ReadCacheEntry r = {.buffer = std::vector<uint8_t>(), .address = 0, .is_valid = false};
+		r.buffer.resize(device->lba_size_bytes);
+		read_cache[i] = r;
+	}
 
 	has_been_initialized = true;
 	return false;
