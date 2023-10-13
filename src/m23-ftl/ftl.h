@@ -10,6 +10,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <vector>
+#include <thread>
 
 #include "../common/unused.h"
 #include "zns_device.h"
@@ -59,6 +60,12 @@ public:
 	}
 
 	~DataMap() {
+		auto const records = DataMap::get_instance();
+		records->should_run_gc = false;
+		while (!records->gc_exited) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+
 		write_metadata();
 		free(device->_private);
 		free(device);
@@ -84,6 +91,7 @@ public:
 	const struct device_data *dd;
 	std::shared_mutex data_mtx, log_mtx;
 	std::atomic<uint64_t> write_counter;
+	bool gc_running = false;
 	bool should_run_gc = true;
 	bool gc_exited = false;
 	static std::shared_ptr<DataMap> records;

@@ -136,46 +136,63 @@ namespace ROCKSDB_NAMESPACE {
 
 		inodes_per_block = zns_dev->lba_size_bytes / INODE_SIZE;
 
-		// setup super block
-		auto const blocks_needed_for_bitmap =
-				((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
-		block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap + 1);
-		super_block.block_map_size = zns_dev->lba_size_bytes * blocks_needed_for_bitmap;
-		super_block.original_inode_reserved = 16 + block_map_offset;
-		WriteSuperBlock();
+		if (is_fresh_start()) {
+			// setup super block
+			auto const blocks_needed_for_bitmap =
+					((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
+			block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap + 1);
+			super_block.block_map_size = zns_dev->lba_size_bytes * blocks_needed_for_bitmap;
+			super_block.original_inode_reserved = 16 + block_map_offset;
+			WriteSuperBlock();
 
-		// setup inode & data block map
-		this->block_map.resize(super_block.block_map_size);
-		SetBlockType(0, BlockType::Inode); // root directory pointer
-		WriteBlockMap();
+			// setup inode & data block map
+			this->block_map.resize(super_block.block_map_size);
+			SetBlockType(0, BlockType::Inode); // root directory pointer
+			WriteBlockMap();
 
-		// setup root directory inode
-		INode root;
-		root.is_nested = false;
-		root.inode_type = S2EntryType::Directory;
-		root.num_disk_pointers = 1;
-		root.size = DIR_SUPER_BLOCK_PLAIN_SIZE;
-		root.disk_pointers[0] = super_block.original_inode_reserved;
-		SetBlockType(super_block.original_inode_reserved, BlockType::Data);
-		WriteBlockMap();
+			// setup root directory inode
+			INode root;
+			root.is_nested = false;
+			root.inode_type = S2EntryType::Directory;
+			root.num_disk_pointers = 1;
+			root.size = DIR_SUPER_BLOCK_PLAIN_SIZE;
+			root.disk_pointers[0] = super_block.original_inode_reserved;
+			SetBlockType(super_block.original_inode_reserved, BlockType::Data);
+			WriteBlockMap();
 
-		// setup super inode block
-		std::vector<uint8_t> output;
-		output.resize(zns_dev->lba_size_bytes);
-		output[0] = 1;
-		root.serialize(&output[1]);
-		WriteBlock(0, &output[0]);
+			// setup super inode block
+			std::vector<uint8_t> output;
+			output.resize(zns_dev->lba_size_bytes);
+			output[0] = 1;
+			root.serialize(&output[1]);
+			WriteBlock(0, &output[0]);
 
-		// write directory to data block
-		std::vector<uint8_t> dir_buffer;
-		dir_buffer.resize(zns_dev->lba_size_bytes);
+			// write directory to data block
+			std::vector<uint8_t> dir_buffer;
+			dir_buffer.resize(zns_dev->lba_size_bytes);
 
-		DirectorySuperBlock dir_sb;
-		dir_sb.name_len = 0;
-		dir_sb.num_entries = 0;
-		dir_sb.serialize(&dir_buffer[0]);
+			DirectorySuperBlock dir_sb;
+			dir_sb.name_len = 0;
+			dir_sb.num_entries = 0;
+			dir_sb.serialize(&dir_buffer[0]);
 
-		WriteBlock(super_block.original_inode_reserved, &dir_buffer[0]);
+			WriteBlock(super_block.original_inode_reserved, &dir_buffer[0]);
+		} else {
+			std::vector<uint8_t> buffer;
+			buffer.resize(zns_dev->lba_size_bytes);
+			int ret = zns_udevice_read(zns_dev, 0, (void *)&buffer[0], zns_dev->lba_size_bytes);
+			if (ret != 0) {
+				std::cerr << "Could not read super block" << std::endl;
+			}
+
+			super_block = SuperBlock(buffer);
+			block_map.resize(super_block.block_map_size);
+			block_map_offset = super_block.original_inode_reserved - 16;
+			ret = zns_udevice_read(zns_dev, zns_dev->lba_size_bytes, (void *)&block_map[0], super_block.block_map_size);
+			if (ret != 0) {
+				std::cerr << "Could not read block map" << std::endl;
+			}
+		}
 	}
 
 	void S2FileSystem::SetBlockType(const uint16_t num, const BlockType block_type) {
@@ -601,7 +618,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	S2FileSystem::~S2FileSystem() {
-		deinit_ss_zns_device(device->device);
+		WriteBlockMap();
 	}
 
 	// Create a brand new sequentially-readable file with the specified name.

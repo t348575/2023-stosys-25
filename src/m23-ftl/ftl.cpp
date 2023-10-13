@@ -33,12 +33,12 @@ void DataMap::init(user_zns_device *_device, const device_data *_dd) {
 	}
 
 	struct nvme_zone_report *r = (nvme_zone_report *)&zone_report[0];
-	struct nvme_zns_desc *desc = (nvme_zns_desc *)(&zone_report[0] + sizeof(*r));
+	struct nvme_zns_desc *zone_desc = (nvme_zns_desc *)(&zone_report[0] + sizeof(*r));
 
 	log_zones.reserve(dd->log_zones - 1);
 
 	// fresh start
-	if (desc->wp == 0) {
+	if (zone_desc->wp == 0) {
 		uint32_t i = 1;
 		for (; i < dd->log_zones; i++) {
 			log_zones.push_back(LogRecord(i * dd->zone_size, dd->zone_size));
@@ -60,8 +60,8 @@ void DataMap::init(user_zns_device *_device, const device_data *_dd) {
 		std::cerr << "ERROR: could not read metadata zone: " << nvme_status_to_string(ret, false) << std::endl;
 	}
 
-	const uint64_t num_blocks = u64_from_buffer(&metadata_zone[(desc->wp * device->lba_size_bytes) - 8]);
-	uint64_t buffer_ptr = (desc->wp * device->lba_size_bytes) - (num_blocks * device->lba_size_bytes);
+	const uint64_t num_blocks = u64_from_buffer(&metadata_zone[(zone_desc->wp * device->lba_size_bytes) - 8]);
+	uint64_t buffer_ptr = (zone_desc->wp * device->lba_size_bytes) - (num_blocks * device->lba_size_bytes);
 
 	for (uint64_t i = 0; i < dd->n_zones; i++) {
 		ftl_record record;
@@ -74,55 +74,33 @@ void DataMap::init(user_zns_device *_device, const device_data *_dd) {
 
 	for (uint64_t i = 0; i < dd->log_zones - 1; i++) {
 		const bool is_seq = (bool)metadata_zone[buffer_ptr];
-		if (is_seq) {
-			const uint64_t base_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
-			const uint64_t p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
-			buffer_ptr += 17;
+		const uint64_t p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
+		const uint64_t base_address = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
+		const uint64_t log_size = u64_from_buffer(&metadata_zone[buffer_ptr + 17]);
+		buffer_ptr += 25;
 
-			log_zones.push_back(LogRecord(p_address, dd->zone_size));
-			const uint64_t zone_num = p_address / dd->zone_size;
+		log_zones.push_back(LogRecord(p_address, dd->zone_size));
+		const uint64_t zone_num = p_address / dd->zone_size;
 
-			log_zones[i].write_ptr =
-					((struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*desc)))->wp;
-			if (log_zones[i].write_ptr == 0xFFFFFFFFFFFFFFFF) {
-				log_zones[i].write_ptr = (zone_num + 1) * dd->zone_size;
-			}
-			log_zones[i].zone_size = log_zones[i].write_ptr - p_address;
-			log_zones[i].base_address = base_address;
+		log_zones[i].write_ptr =
+				((struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*zone_desc)))->wp;
+		if (log_zones[i].write_ptr == 0xFFFFFFFFFFFFFFFF) {
+			log_zones[i].write_ptr = (zone_num + 1) * dd->zone_size;
+		}
+		log_zones[i].zone_size = log_zones[i].write_ptr - p_address;
+		log_zones[i].base_address = base_address;
+		log_zones[i].is_seq = is_seq;
 
-			log_zones[i].is_seq = true;
-			for (uint64_t j = 0; j < log_zones[i].zone_size; j++) {
-				log_zones[i].logs.push_back({.l_address = base_address + (j * device->lba_size_bytes),
-											 .p_address = p_address + j,
-											 .base_address = base_address,
-											 .flag = status_flag::Valid});
-			}
-		} else {
-			const uint64_t p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 1]);
-			const uint64_t log_size = u64_from_buffer(&metadata_zone[buffer_ptr + 9]);
-			buffer_ptr += 17;
+		for (uint64_t j = 0; j < log_size; j++) {
+			const uint64_t l_address = u64_from_buffer(&metadata_zone[buffer_ptr]);
+			const uint64_t inner_p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 8]);
+			buffer_ptr += 16;
 
-			log_zones.push_back(LogRecord(p_address, dd->zone_size));
-			const uint64_t zone_num = p_address / dd->zone_size;
-
-			log_zones[i].write_ptr =
-					((struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*desc)))->wp;
-			if (log_zones[i].write_ptr == 0xFFFFFFFFFFFFFFFF) {
-				log_zones[i].write_ptr = (zone_num + 1) * dd->zone_size;
-			}
-			log_zones[i].zone_size = log_zones[i].write_ptr - p_address;
-
-			for (uint64_t j = 0; j < log_size; j++) {
-				const uint64_t l_address = u64_from_buffer(&metadata_zone[buffer_ptr]);
-				const uint64_t inner_p_address = u64_from_buffer(&metadata_zone[buffer_ptr + 8]);
-				buffer_ptr += 16;
-
-				log_zones[i].logs.push_back(
-						{.l_address = l_address,
-						 .p_address = inner_p_address,
-						 .base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, l_address),
-						 .flag = status_flag::Valid});
-			}
+			log_zones[i].logs.push_back(
+					{.l_address = l_address,
+						.p_address = inner_p_address,
+						.base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, l_address),
+						.flag = status_flag::Valid});
 		}
 	}
 	init_cache();
@@ -335,12 +313,7 @@ void DataMap::write_metadata() {
 
 	uint64_t bytes_needed = 0;
 	for (const auto &lz : log_zones) {
-		bytes_needed++;
-		if (lz.is_seq) {
-			bytes_needed += 16;
-		} else {
-			bytes_needed += (lz.logs.size() * 2 * 16) + 16;
-		}
+		bytes_needed += (lz.logs.size() * 2 * 16) + 25;
 	}
 
 	bytes_needed += dd->n_zones * 17;
@@ -368,19 +341,14 @@ void DataMap::write_metadata() {
 
 	for (auto const &lz : log_zones) {
 		buffer[buffer_ptr] = lz.is_seq;
-		if (lz.is_seq) {
-			u64_to_buffer(lz.base_address, &buffer[buffer_ptr + 1]);
-			u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 9]);
-			buffer_ptr += 17;
-		} else {
-			u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 1]);
-			u64_to_buffer(lz.logs.size(), &buffer[buffer_ptr + 9]);
-			buffer_ptr += 17;
-			for (auto const &entry : lz.logs) {
-				u64_to_buffer(entry.l_address, &buffer[buffer_ptr]);
-				u64_to_buffer(entry.p_address, &buffer[buffer_ptr + 8]);
-				buffer_ptr += 16;
-			}
+		u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 1]);
+		u64_to_buffer(lz.base_address, &buffer[buffer_ptr + 9]);
+		u64_to_buffer(lz.logs.size(), &buffer[buffer_ptr + 17]);
+		buffer_ptr += 25;
+		for (auto const &entry : lz.logs) {
+			u64_to_buffer(entry.l_address, &buffer[buffer_ptr]);
+			u64_to_buffer(entry.p_address, &buffer[buffer_ptr + 8]);
+			buffer_ptr += 16;
 		}
 	}
 	u64_to_buffer(blocks_needed, &buffer[buffer.size() - 8]);

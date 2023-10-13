@@ -146,12 +146,6 @@ uint64_t get_mdts_size(const int fd, const char *name) {
 
 int deinit_ss_zns_device(struct user_zns_device *my_dev) {
 	UNUSED(my_dev);
-	auto const records = DataMap::get_instance();
-	records->should_run_gc = false;
-	while (!records->gc_exited) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	}
-
 	return 0;
 }
 
@@ -211,10 +205,11 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->log_zones = params->log_zones;
 	dd->n_zones = zones.nr_zones - params->log_zones;
 
-	DataMap::get_instance()->init(*my_dev, dd);
-
-	std::thread t1(gc_loop);
-	t1.detach();
+	if (!DataMap::get_instance()->gc_running) {
+		DataMap::get_instance()->init(*my_dev, dd);
+		std::thread t1(gc_loop);
+		t1.detach();
+	}
 
 	return 0;
 }
@@ -540,6 +535,7 @@ void gc() {
 
 void gc_loop() {
 	auto const records = DataMap::get_instance();
+	records->gc_running = true;
 	while (records->should_run_gc) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(30));
 
@@ -669,4 +665,28 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 	}
 	records->log_mtx.unlock();
 	return 0;
+}
+
+bool is_fresh_start() {
+	ftl_record record;
+	auto records = DataMap::get_instance();
+	if (records->find_in_log(0, record)) {
+		const uint64_t size_zone_report = sizeof(nvme_zone_report) + records->device->tparams.zns_num_zones * sizeof(nvme_zns_desc);
+		std::vector<uint8_t> zone_report;
+		zone_report.resize(size_zone_report);
+		int ret = nvme_zns_report_zones(records->dd->fd, records->dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, size_zone_report,
+										&zone_report[0]);
+		if (ret != 0) {
+			std::cerr << "ERROR: could not get report-zones: " << nvme_status_to_string(ret, false) << std::endl;
+		}
+
+		struct nvme_zone_report *r = (nvme_zone_report *)&zone_report[0];
+		auto const zone_num = (closest_lower_multiple(records->dd->zone_size, record.p_address) / records->dd->zone_size) + 1;
+		struct nvme_zns_desc *zone_desc = (struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*zone_desc));
+
+		return zone_desc->wp == 0;
+	} else if (records->find_in_log(0, record)) {
+		return false;
+	}
+	return true;
 }
