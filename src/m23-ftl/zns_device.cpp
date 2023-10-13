@@ -145,16 +145,13 @@ uint64_t get_mdts_size(const int fd, const char *name) {
 }
 
 int deinit_ss_zns_device(struct user_zns_device *my_dev) {
+	UNUSED(my_dev);
 	auto const records = DataMap::get_instance();
 	records->should_run_gc = false;
 	while (!records->gc_exited) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
-	DataMap::get_instance()->write_metadata();
-
-	free(my_dev->_private);
-	free(my_dev);
 	return 0;
 }
 

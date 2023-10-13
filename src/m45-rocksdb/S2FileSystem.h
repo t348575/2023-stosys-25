@@ -120,7 +120,7 @@ namespace ROCKSDB_NAMESPACE {
 		// No copying allowed
 		S2FileSystem(std::string uri, bool debug);
 		S2FileSystem(const S2FileSystem &) = delete;
-		virtual ~S2FileSystem();
+		~S2FileSystem();
 
 		IOStatus IsDirectory(const std::string &, const IOOptions &options, bool *is_dir, IODebugContext *) override;
 

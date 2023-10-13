@@ -600,7 +600,9 @@ namespace ROCKSDB_NAMESPACE {
 		return WriteBlock(ptr.block, &buffer[0]);
 	}
 
-	S2FileSystem::~S2FileSystem() { deinit_ss_zns_device(device->device); }
+	S2FileSystem::~S2FileSystem() {
+		deinit_ss_zns_device(device->device);
+	}
 
 	// Create a brand new sequentially-readable file with the specified name.
 	// On success, stores a pointer to the new file in *result and returns OK.
@@ -770,19 +772,20 @@ namespace ROCKSDB_NAMESPACE {
 		std::string base_path = _dirname;
 		auto g = LockManager::WriteGuard(_dirname);
 		auto ret = FindInodeWithBase(_dirname, inode, base, base_path);
-		if (base_path.length() == 0) {
-			base_path = "/";
-		}
 		if (ret.code() == Status::Code::kNotFound) {
 			std::stack<std::string> dirs_to_create;
 			dirs_to_create.push(_dirname);
+
+			if (base_path.length() == 0) {
+				base_path = get_base_path(_dirname);
+			}
 
 			std::string base_copy = base_path;
 			while (true) {
 				ret = FindInodeWithBase(base_copy, inode, base, base_path);
 				if (ret.code() == Status::Code::kNotFound) {
-					dirs_to_create.push(base_path);
-					base_copy = base_path;
+					dirs_to_create.push(base_copy);
+					base_copy = get_base_path(base_copy);
 				} else if (!ret.ok()) {
 					return ret;
 				} else {

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 
 #include "../common/VisualProfiler.hpp"
 #include "../common/utils.h"
@@ -8,7 +9,7 @@
 
 #define PROFILE_FTL_FUNCTION() PROFILE_FUNCTION_CATEGORY("ftl")
 
-DataMap *DataMap::records = nullptr;
+std::shared_ptr<DataMap> DataMap::records;
 
 inline uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }
 
@@ -324,7 +325,7 @@ void DataMap::delete_from_log_if_exists(const uint64_t address) {
 	}
 }
 
-void DataMap::write_metadata(std::string file_name) {
+void DataMap::write_metadata() {
 	records->log_mtx.lock();
 	records->data_mtx.lock();
 	nvme_zone_report zone_report;

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <shared_mutex>
 #include <vector>
 
@@ -51,10 +52,16 @@ public:
 class DataMap {
 public:
 	static DataMap *get_instance() {
-		if (records == nullptr) {
-			records = new DataMap();
+		if (records.get() == nullptr) {
+			records.reset(new DataMap());
 		}
-		return records;
+		return records.get();
+	}
+
+	~DataMap() {
+		write_metadata();
+		free(device->_private);
+		free(device);
 	}
 
 	void init(struct user_zns_device *_device, const struct device_data *_dd);
@@ -67,7 +74,7 @@ public:
 	bool remove_unused_data_zone(const uint64_t base_address, ftl_record &record);
 	void set_data_zone(const uint64_t idx, const ftl_record record);
 	void delete_from_log_if_exists(const uint64_t address);
-	void write_metadata(std::string file_name = "write");
+	void write_metadata();
 	void read_metadata();
 	std::vector<struct count_base_address_sums> count_base_addresses();
 
@@ -79,7 +86,7 @@ public:
 	std::atomic<uint64_t> write_counter;
 	bool should_run_gc = true;
 	bool gc_exited = false;
-	static DataMap *records;
+	static std::shared_ptr<DataMap> records;
 
 	struct ReadCacheEntry {
 		std::vector<uint8_t> buffer;
