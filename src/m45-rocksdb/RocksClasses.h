@@ -15,6 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Read(size_t n, const IOOptions &options, Slice *result, char *scratch, IODebugContext *dbg);
 		IOStatus Skip(uint64_t n);
 
+		std::string path;
 	private:
 		INode root_inode;
 		INode curr_inode;

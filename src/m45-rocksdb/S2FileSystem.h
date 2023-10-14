@@ -34,6 +34,7 @@ SOFTWARE.
 
 #include <ftl.h>
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <zns_device.h>
 
@@ -217,13 +218,19 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus PlaceNewINodeBlock(const INode inode, INodePointer &ptr, bool flush = true);
 		IOStatus PlaceNewDataBlock(uint64_t &block_num, bool flush = true);
 		IOStatus ReadINode(const INodePointer ptr, INode &inode);
-		IOStatus WriteINode(const RichInode ri, bool increment_count);
+		IOStatus WriteINode(const RichInode ri);
 
 		struct FindInodeDirs {
 			DirectorySuperBlock sb;
 			std::vector<DirectoryEntry> dir_entries;
 			uint64_t buffer_size;
 		};
+
+		void write_to_file(const char * data, uint64_t size) {
+			std::ofstream f("f", std::ios::trunc);
+			f.write(data, size);
+			f.close();
+		}
 
 		IOStatus FindInode(const std::string &path, RichInode &inode);
 		IOStatus FindInodeWithBase(const std::string &path, RichInode &inode, RichInode &base_inode,

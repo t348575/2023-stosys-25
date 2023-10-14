@@ -19,7 +19,6 @@ namespace ROCKSDB_NAMESPACE {
 		while (left > 0) {
 			if (ptr == root_inode.size) {
 				*result = Slice(scratch, n - left);
-				std::cout << "Requested " << std::to_string(n) << " read " << std::to_string(n - left) << " last char " << std::to_string((int)scratch[n - left - 1]) << std::endl;
 				ptr++;
 				return IOStatus::OK();
 			}
@@ -52,14 +51,12 @@ namespace ROCKSDB_NAMESPACE {
 			}
 
 			const auto op_size = std::min(std::min((uint64_t)zns_dev->lba_size_bytes, left), root_inode.size - ptr);
-			std::cout << "op_size " << std::to_string(op_size) << " file size " << std::to_string(root_inode.size) << " ptr " << std::to_string(ptr) << std::endl;
 			memcpy((uint8_t *)scratch + n - left, &buffer[0], op_size);
 			ptr += op_size;
 			disk_ptr++;
 			left -= op_size;
 		}
 		*result = Slice(scratch, n - left);
-		std::cout << "Requested " << std::to_string(n) << " read " << std::to_string(n - left) << " last char " << std::to_string((int)scratch[n - left - 1]) << std::endl;
 		return IOStatus::OK();
 	}
 
@@ -87,8 +84,7 @@ namespace ROCKSDB_NAMESPACE {
 		uint64_t left = data.size();
 		while (left > 0) {
 			const uint64_t last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
-			const uint64_t offset = zns_dev->lba_size_bytes - last_block_leftover;
-			uint64_t op_size = std::min(std::min(offset, (uint64_t)zns_dev->lba_size_bytes), left);
+			uint64_t op_size = std::min((uint64_t)zns_dev->lba_size_bytes, left);
 
 			if (last_block_leftover == 0 || current_inode->inode.num_disk_pointers == 0) {
 				RichInode *tmp = nullptr;
@@ -112,11 +108,11 @@ namespace ROCKSDB_NAMESPACE {
 					}
 				}
 
-				if (offset + op_size > zns_dev->lba_size_bytes) {
-					op_size = zns_dev->lba_size_bytes - offset;
+				if (last_block_leftover + op_size > zns_dev->lba_size_bytes) {
+					op_size = zns_dev->lba_size_bytes - last_block_leftover;
 				}
 
-				memcpy(&buffer[offset], data.data() + data.size() - left, op_size);
+				memcpy(&buffer[last_block_leftover], data.data() + data.size() - left, op_size);
 				auto ret = fs->WriteBlock(current_disk_ptr, &buffer[0]);
 				if (!ret.ok()) {
 					return ret;
@@ -138,19 +134,11 @@ namespace ROCKSDB_NAMESPACE {
 			left -= op_size;
 			root_inode.inode.size += op_size;
 		}
-		std::cout << path << " size is: " << std::to_string(root_inode.inode.size) << " last char is " << std::to_string((int)(data.data() + data.size() - 1)[0]) << std::endl;
-		return IOStatus::OK();
+		return Flush(options, dbg);
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {
-		RichInode ri;
-		ri.ptr = root_inode.ptr;
-		auto const ret = fs->ReadINode(ri.ptr, ri.inode);
-		if (!ret.ok()) {
-			return ret;
-		}
-		ri.inode.size = root_inode.inode.size;
-		return fs->WriteINode(ri, false);
+		return fs->WriteINode(root_inode);
 	}
 	IOStatus RocksWriteableFile::Close(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }
 	IOStatus RocksWriteableFile::Sync(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }

@@ -19,6 +19,29 @@ std::vector<uint8_t> read_file(const std::string name) {
 int main(int argc, char **argv) {
     rdb::S2FileSystem z = rdb::S2FileSystem("s2fs:nvme0n1:///tmp/testdb/", true);
 
+    // auto actual = read_file("run_1/MANIFEST-000004");
+    // std::unique_ptr<rdb::FSSequentialFile> s2fs_manifest;
+    // if (!z.NewSequentialFile("/tmp/testdb/MANIFEST-000004", rdb::FileOptions(), &s2fs_manifest, nullptr).ok()) {
+    //     std::cerr << "Could not open s2fs manifest" << std::endl;
+    // }
+
+    // std::vector<uint8_t> scratch;
+    // scratch.resize(32768);
+    // rdb::Slice slice;
+    // if (!s2fs_manifest->Read(32768, rdb::IOOptions(), &slice, (char*)&scratch[0], nullptr).ok()) {
+    //     std::cerr << "Could not read from s2fs manifest" << std::endl;
+    // }
+
+    // if (slice.size() != actual.size()) {
+    //     std::cerr << "Files dont match " << slice.size() << " " << actual.size() << std::endl;
+    // }
+
+    // for (uint64_t i = 0; i < slice.size(); i++) {
+    //     if (scratch[i] != actual[i]) {
+    //         std::cout << "Not matching " << std::to_string(i) << " " << scratch[i] << " " << actual[i] << std::endl;
+    //     }
+    // }
+
     // std::unique_ptr<rdb::FSSequentialFile> file;
     // if (!z.NewSequentialFile("/tmp/testdb/000005.log", rdb::FileOptions(), &file, nullptr).ok()) {
     //     std::cerr << "Could not open 000005.log" << std::endl;
@@ -68,8 +91,8 @@ int main(int argc, char **argv) {
     //     return 0;
     // }
 
-    std::unique_ptr<rdb::FSSequentialFile> file;
-    z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
+    // std::unique_ptr<rdb::FSSequentialFile> file;
+    // z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
     // z.CreateDir("/a", rdb::IOOptions(), nullptr);
     // z.CreateDirIfMissing("/b", rdb::IOOptions(), nullptr);
     // z.CreateDirIfMissing("/a/b", rdb::IOOptions(), nullptr);
@@ -95,31 +118,23 @@ int main(int argc, char **argv) {
     //     std::cout << "/" << t.name << std::endl;
     // }
 
-    auto const num_action = 4389;
+    // auto const num_action = 58344;
     // if (argc == 1) {
-        std::unique_ptr<rdb::FSWritableFile> wr_file;
-        if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
-            std::cout << "Could not create writeable file" << std::endl;
-        }
+        // std::unique_ptr<rdb::FSWritableFile> wr_file;
+        // if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
+        //     std::cout << "Could not create writeable file" << std::endl;
+        // }
+        
+        // std::vector<uint8_t> buffer;
+        // for (uint32_t i = 0; i < num_action; i++) {
+        //     buffer.push_back(i % 0xFF);
+        // }
+        // buffer.push_back('\n');
 
-        std::vector<uint8_t> buffer;
-        for (uint32_t i = 0; i < num_action; i++) {
-            buffer.push_back(i % 0xFF);
-        }
-        buffer.push_back('\n');
-
-        auto s = rdb::Slice((char*)&buffer[0], num_action + 1);
-        wr_file->Append(s, rdb::IOOptions(), nullptr);
-        wr_file->Close(rdb::IOOptions(), nullptr);
+        // auto s = rdb::Slice((char*)&buffer[0], num_action);
+        // wr_file->Append(s, rdb::IOOptions(), nullptr);
+        // wr_file->Close(rdb::IOOptions(), nullptr);
     // }
-    z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);
-    rdb::Slice slice;
-    std::vector<char> temp_buffer;
-    temp_buffer.resize(num_action + 1);
-    if (!file->Read(num_action + 1, rdb::IOOptions(), &slice, &temp_buffer[0], nullptr).ok()) {
-        std::cout << "Could not read" << std::endl;
-    }
-    std::cout << std::to_string((int)temp_buffer.back()) << std::endl;
     // z.NewSequentialFile("/a/d", rdb::FileOptions(), &file, nullptr);
     // z.RenameFile("/a/c", "/a/d", rdb::IOOptions(), nullptr);
     //     std::vector<std::string> dirs1;
@@ -129,7 +144,7 @@ int main(int argc, char **argv) {
     //         std::cout << "/a/" << t << std::endl;
     //     }
     //     dirs1.clear();
-    //     z.GetChildren("/", rdb::IOOptions(), &dirs1, nullptr);
+    //     z.GetChildren("/tmp/testdb", rdb::IOOptions(), &dirs1, nullptr);
     //     std::cout << "Children of / are: " << std::endl;
     //     for (const auto &t: dirs1) {
     //         std::cout << "/" << t << std::endl;
