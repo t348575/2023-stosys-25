@@ -258,6 +258,7 @@ namespace ROCKSDB_NAMESPACE {
 		// indexes offset after super block and block_map
 		std::vector<uint8_t> block_map; // bitmap of inode and data
 		uint64_t block_map_offset;		// end of data bitmap block
+		uint64_t block_map_size;
 		uint64_t inodes_per_block;
 		SuperBlock super_block;
 		DataMap *device = DataMap::get_instance();

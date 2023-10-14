@@ -158,14 +158,8 @@ void u16_to_buffer(const uint16_t value, uint8_t *output) {
 	output[1] = value & 0xFF;
 }
 
-uint64_t closest_upper_multiple(uint64_t x, uint64_t n) {
-	if (x > n) {
-		return x;
-	}
-
-	n = n + x / 2;
-	n = n - (n % x);
-	return n;
+uint64_t closest_upper_multiple(uint64_t n, uint64_t x) {
+	return closest_lower_multiple(n, x) + n;
 }
 
 uint64_t closest_lower_multiple(uint64_t n, uint64_t x) { return x - (x % n); }

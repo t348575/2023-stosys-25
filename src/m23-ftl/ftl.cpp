@@ -328,6 +328,7 @@ void DataMap::write_metadata() {
 
 	const uint64_t blocks_needed =
 			closest_upper_multiple(device->lba_size_bytes, bytes_needed) / device->lba_size_bytes;
+	// std::cout << "metadata will take " << std::to_string(bytes_needed) << "\t" << std::endl;
 	if (zone_desc->wp + blocks_needed >= dd->zone_size) {
 		ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, 1);
 		if (ret != 0) {

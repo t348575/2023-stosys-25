@@ -19,6 +19,15 @@ std::vector<uint8_t> read_file(const std::string name) {
 int main(int argc, char **argv) {
     rdb::S2FileSystem z = rdb::S2FileSystem("s2fs:nvme0n1:///tmp/testdb/", true);
 
+    std::vector<std::string> dirs;
+    z.GetChildren("/tmp/testdb", rdb::IOOptions(), &dirs, nullptr);
+    std::cout << "Children of /tmp/testdb are: " << std::endl;
+    for (const auto &t: dirs) {
+        uint64_t file_size;
+        z.GetFileSize("/tmp/testdb/" + t, rdb::IOOptions(), &file_size, nullptr);
+        std::cout << "/tmp/testdb/" << t << " with size " << std::to_string(file_size) << std::endl;
+    }
+
     // auto actual = read_file("run_1/MANIFEST-000004");
     // std::unique_ptr<rdb::FSSequentialFile> s2fs_manifest;
     // if (!z.NewSequentialFile("/tmp/testdb/MANIFEST-000004", rdb::FileOptions(), &s2fs_manifest, nullptr).ok()) {

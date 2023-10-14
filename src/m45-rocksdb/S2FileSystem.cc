@@ -135,18 +135,18 @@ namespace ROCKSDB_NAMESPACE {
 				   device.c_str(), this->zns_dev->lba_size_bytes, this->zns_dev->capacity_bytes);
 
 		inodes_per_block = (zns_dev->lba_size_bytes / INODE_SIZE) - 1;
+		block_map_size = ((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4);		
 
 		if (is_fresh_start()) {
 			// setup super block
-			auto const blocks_needed_for_bitmap =
-					((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
-			block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap + 1);
+			auto const blocks_needed_for_bitmap = closest_upper_multiple(zns_dev->lba_size_bytes, (zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
+			block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap);
 			super_block.block_map_size = zns_dev->lba_size_bytes * blocks_needed_for_bitmap;
 			super_block.original_inode_reserved = 16 + block_map_offset;
 			WriteSuperBlock();
 
 			// setup inode & data block map
-			this->block_map.resize(super_block.block_map_size);
+			block_map.resize(super_block.block_map_size);
 			SetBlockType(0, BlockType::Inode); // root directory pointer
 			WriteBlockMap();
 
@@ -371,7 +371,7 @@ namespace ROCKSDB_NAMESPACE {
 		std::vector<uint8_t> buffer;
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		buffer.resize(zns_dev->lba_size_bytes);
-		for (uint64_t i = 0; i < block_map.size(); i++) {
+		for (uint64_t i = 0; i < block_map_size; i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const block_num = (i * 4) + j;
 				BlockType const block_type =
@@ -429,7 +429,7 @@ namespace ROCKSDB_NAMESPACE {
 		std::vector<uint8_t> buffer;
 		buffer.resize(zns_dev->lba_size_bytes);
 		std::lock_guard<std::recursive_mutex> g(mtx);
-		for (uint64_t i = super_block.original_inode_reserved / 4; i < block_map.size(); i++) {
+		for (uint64_t i = super_block.original_inode_reserved / 4; i < block_map_size; i++) {
 			for (uint8_t j = 0; j < 4; j++) {
 				auto const t_block_num = (i * 4) + j;
 				BlockType const block_type = (S2FileSystem::BlockType)(
@@ -627,6 +627,37 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	S2FileSystem::~S2FileSystem() {
+		// uint64_t empty = 0;
+		// uint64_t data = 0;
+		// uint64_t inode = 0;
+		// for (uint64_t i = 0; i < block_map_size; i++) {
+		// 	// std::cout << std::to_string(i) << " ";
+		// 	// std::cout << std::to_string(block_map[i]) << " ";
+		// 	for (uint8_t j = 0; j < 4; j++) {
+		// 		auto const block_num = (i * 4) + j;
+		// 		BlockType const block_type =
+		// 				(S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[block_num / 4] >> (block_num % 4) * 2);
+		// 		// std::cout << std::to_string(block_type) << " ";
+		// 		switch (block_type) {
+		// 			case S2FileSystem::BlockType::Data: {
+		// 				data++;
+		// 				break;
+		// 			}
+		// 			case S2FileSystem::BlockType::Inode: {
+		// 				inode++;
+		// 				break;
+		// 			}
+		// 			case S2FileSystem::BlockType::Unused: {
+		// 				empty++;
+		// 				break;
+		// 			}
+		// 		}
+		// 	}
+		// 	// std::cout << std::endl;
+		// }
+		// std::cout << "Free blocks " << std::to_string(empty) << std::endl;
+		// std::cout << "Data blocks " << std::to_string(data) << std::endl;
+		// std::cout << "Inode blocks " << std::to_string(inode) << std::endl;
 		WriteBlockMap();
 	}
 

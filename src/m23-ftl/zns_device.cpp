@@ -187,7 +187,7 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 
 	*my_dev = (user_zns_device *)calloc(sizeof(user_zns_device), 1);
 	(**my_dev).lba_size_bytes = block_size;
-	(**my_dev).capacity_bytes = (zones.nr_zones - params->log_zones) * zns_ns.lbafe->zsze * block_size;
+	(**my_dev).capacity_bytes = (zones.nr_zones - params->log_zones - 1) * zns_ns.lbafe->zsze * block_size;
 	(**my_dev).tparams = {
 			.zns_lba_size = block_size,
 			.zns_zone_capacity = (uint32_t)zns_ns.lbafe->zsze * block_size,
