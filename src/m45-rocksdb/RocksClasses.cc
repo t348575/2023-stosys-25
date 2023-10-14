@@ -194,8 +194,9 @@ namespace ROCKSDB_NAMESPACE {
 			uint64_t copy_size = std::min((uint64_t)zns_dev->lba_size_bytes, size_left);
 			if (i == start_block) {
 				copy_from = offset - closest_lower_multiple(zns_dev->lba_size_bytes, offset);
+				copy_size = std::min(zns_dev->lba_size_bytes - copy_from, size_left);
 			} else if (i == end_block) {
-				copy_from = (offset + n) - closest_lower_multiple(zns_dev->lba_size_bytes, offset + n);
+				copy_size = std::min((offset + n) % zns_dev->lba_size_bytes, size_left);
 			}
 
 			memcpy(scratch + output_ptr, &buffer[copy_from], copy_size);
