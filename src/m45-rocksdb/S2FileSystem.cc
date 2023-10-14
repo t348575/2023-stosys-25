@@ -120,7 +120,7 @@ namespace ROCKSDB_NAMESPACE {
 								   uri_db_path.find(edelimiter) - (uri_db_path.find(sdelimiter) + sdelimiter.size()));
 		// make sure to setup these parameters properly and check the forced reset flag for M5
 		params.name = (char *)device.c_str();
-		params.log_zones = 4;
+		params.log_zones = 16;
 		params.gc_wmark = 0;
 		params.force_reset = true;
 		int ret = init_ss_zns_device(&params, &this->zns_dev);

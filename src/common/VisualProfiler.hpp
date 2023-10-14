@@ -57,7 +57,7 @@ public:
         track_event_cfg.add_enabled_categories("*");
 
         perfetto::TraceConfig cfg;
-        cfg.add_buffers()->set_size_kb(1024 * 1024 * 1024);
+        cfg.add_buffers()->set_size_kb(1024 * 1024);
         auto* ds_cfg = cfg.add_data_sources()->mutable_config();
         ds_cfg->set_name("track_event");
         ds_cfg->set_track_event_config_raw(track_event_cfg.SerializeAsString());
