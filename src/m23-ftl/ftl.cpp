@@ -98,9 +98,9 @@ void DataMap::init(user_zns_device *_device, const device_data *_dd) {
 
 			log_zones[i].logs.push_back(
 					{.l_address = l_address,
-						.p_address = inner_p_address,
-						.base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, l_address),
-						.flag = status_flag::Valid});
+					 .p_address = inner_p_address,
+					 .base_address = closest_lower_multiple(device->tparams.zns_zone_capacity, l_address),
+					 .flag = status_flag::Valid});
 		}
 	}
 	init_cache();
@@ -320,7 +320,7 @@ void DataMap::write_metadata() {
 
 	uint64_t bytes_needed = 0;
 	for (const auto &lz : log_zones) {
-		bytes_needed += (lz.logs.size() * 2 * 16) + 25;
+		bytes_needed += (lz.logs.size() * 16) + 25;
 	}
 
 	bytes_needed += dd->n_zones * 17;
@@ -328,7 +328,6 @@ void DataMap::write_metadata() {
 
 	const uint64_t blocks_needed =
 			closest_upper_multiple(device->lba_size_bytes, bytes_needed) / device->lba_size_bytes;
-	// std::cout << "metadata will take " << std::to_string(bytes_needed) << "\t" << std::endl;
 	if (zone_desc->wp + blocks_needed >= dd->zone_size) {
 		ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, 1);
 		if (ret != 0) {
@@ -364,10 +363,6 @@ void DataMap::write_metadata() {
 	if (ret != 0) {
 		std::cerr << "ERROR: could not write metadata to disk: " << nvme_status_to_string(ret, false) << std::endl;
 	}
-
-	// std::ofstream f("write", std::ios::trunc);
-	// f.write((const char*)&buffer[0], buffer.size());
-	// f.close();
 
 	records->log_mtx.unlock();
 	records->data_mtx.unlock();

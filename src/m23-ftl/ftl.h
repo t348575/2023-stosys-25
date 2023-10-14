@@ -9,8 +9,8 @@
 #include <cstring>
 #include <memory>
 #include <shared_mutex>
-#include <vector>
 #include <thread>
+#include <vector>
 
 #include "../common/unused.h"
 #include "zns_device.h"

@@ -135,11 +135,14 @@ namespace ROCKSDB_NAMESPACE {
 				   device.c_str(), this->zns_dev->lba_size_bytes, this->zns_dev->capacity_bytes);
 
 		inodes_per_block = (zns_dev->lba_size_bytes / INODE_SIZE) - 1;
-		block_map_size = ((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4);		
+		block_map_size = ((zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4);
 
 		if (is_fresh_start()) {
 			// setup super block
-			auto const blocks_needed_for_bitmap = closest_upper_multiple(zns_dev->lba_size_bytes, (zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) / zns_dev->lba_size_bytes;
+			auto const blocks_needed_for_bitmap =
+					closest_upper_multiple(zns_dev->lba_size_bytes,
+										   (zns_dev->capacity_bytes / zns_dev->lba_size_bytes) / 4) /
+					zns_dev->lba_size_bytes;
 			block_map_offset = closest_upper_multiple(4, blocks_needed_for_bitmap);
 			super_block.block_map_size = zns_dev->lba_size_bytes * blocks_needed_for_bitmap;
 			super_block.original_inode_reserved = 16 + block_map_offset;
@@ -210,7 +213,7 @@ namespace ROCKSDB_NAMESPACE {
 		std::lock_guard<std::recursive_mutex> g(mtx);
 		auto ret = zns_udevice_write(zns_dev, zns_dev->lba_size_bytes, &block_map[0], super_block.block_map_size);
 		if (ret != 0) {
-			return IOStatus::IOError();
+			return IOStatus::IOError(__FUNCTION__);
 		}
 		return IOStatus::OK();
 	}
@@ -222,7 +225,7 @@ namespace ROCKSDB_NAMESPACE {
 		super_block.serialize(output);
 		auto ret = zns_udevice_write(zns_dev, 0, &output[0], zns_dev->lba_size_bytes);
 		if (ret != 0) {
-			return IOStatus::IOError();
+			return IOStatus::IOError(__FUNCTION__);
 		}
 		return IOStatus::OK();
 	}
@@ -231,7 +234,7 @@ namespace ROCKSDB_NAMESPACE {
 		auto ret = zns_udevice_write(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									 zns_dev->lba_size_bytes);
 		if (ret != 0) {
-			return IOStatus::IOError();
+			return IOStatus::IOError(__FUNCTION__);
 		}
 		return IOStatus::OK();
 	}
@@ -240,7 +243,7 @@ namespace ROCKSDB_NAMESPACE {
 		auto ret = zns_udevice_read(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									zns_dev->lba_size_bytes);
 		if (ret != 0) {
-			return IOStatus::IOError();
+			return IOStatus::IOError(__FUNCTION__);
 		}
 		return IOStatus::OK();
 	}

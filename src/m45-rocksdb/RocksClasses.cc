@@ -173,14 +173,16 @@ namespace ROCKSDB_NAMESPACE {
 		buffer.resize(zns_dev->lba_size_bytes);
 
 		uint64_t output_ptr = 0, size_left = n;
-		auto const start_block = closest_lower_multiple(zns_dev->lba_size_bytes, offset) / zns_dev->lba_size_bytes;
-		auto const end_block = closest_upper_multiple(zns_dev->lba_size_bytes, offset + n) / zns_dev->lba_size_bytes;
 		uint64_t op_size;
 		if (offset + n > root_inode.size) {
 			op_size = root_inode.size - offset;
 		} else {
 			op_size = n;
 		}
+
+		auto const start_block = closest_lower_multiple(zns_dev->lba_size_bytes, offset) / zns_dev->lba_size_bytes;
+		auto const end_block =
+				closest_upper_multiple(zns_dev->lba_size_bytes, offset + op_size) / zns_dev->lba_size_bytes;
 
 		for (uint64_t i = start_block; i < end_block; i++) {
 			auto ret = fs->ReadBlock(disk_pointers[i], &buffer[0]);

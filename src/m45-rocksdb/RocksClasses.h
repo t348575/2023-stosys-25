@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Skip(uint64_t n);
 
 		std::string path;
+
 	private:
 		INode root_inode;
 		INode curr_inode;
@@ -50,6 +51,7 @@ namespace ROCKSDB_NAMESPACE {
 		void DeleteCurrentNode();
 
 		std::string path;
+
 	private:
 		RichInode root_inode, *current_inode;
 		std::vector<uint8_t> buffer;
@@ -63,7 +65,6 @@ namespace ROCKSDB_NAMESPACE {
 	public:
 		RocksRandomAccessFile(const INode inode, const struct user_zns_device *zns_dev, S2FileSystem *fs,
 							  IOStatus &init_status);
-
 		IOStatus Read(uint64_t offset, size_t n, const IOOptions &options, Slice *result, char *scratch,
 					  IODebugContext *dbg) const;
 

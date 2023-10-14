@@ -671,21 +671,24 @@ bool is_fresh_start() {
 	ftl_record record;
 	auto records = DataMap::get_instance();
 	if (records->find_in_log(0, record)) {
-		const uint64_t size_zone_report = sizeof(nvme_zone_report) + records->device->tparams.zns_num_zones * sizeof(nvme_zns_desc);
+		const uint64_t size_zone_report =
+				sizeof(nvme_zone_report) + records->device->tparams.zns_num_zones * sizeof(nvme_zns_desc);
 		std::vector<uint8_t> zone_report;
 		zone_report.resize(size_zone_report);
-		int ret = nvme_zns_report_zones(records->dd->fd, records->dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, size_zone_report,
-										&zone_report[0]);
+		int ret = nvme_zns_report_zones(records->dd->fd, records->dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true,
+										size_zone_report, &zone_report[0]);
 		if (ret != 0) {
 			std::cerr << "ERROR: could not get report-zones: " << nvme_status_to_string(ret, false) << std::endl;
 		}
 
 		struct nvme_zone_report *r = (nvme_zone_report *)&zone_report[0];
-		auto const zone_num = (closest_lower_multiple(records->dd->zone_size, record.p_address) / records->dd->zone_size) + 1;
-		struct nvme_zns_desc *zone_desc = (struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*zone_desc));
+		auto const zone_num =
+				(closest_lower_multiple(records->dd->zone_size, record.p_address) / records->dd->zone_size) + 1;
+		struct nvme_zns_desc *zone_desc =
+				(struct nvme_zns_desc *)(&zone_report[0] + sizeof(*r) + zone_num * sizeof(*zone_desc));
 
 		return zone_desc->wp == 0;
-	} else if (records->find_in_log(0, record)) {
+	} else if (records->find_in_data(0, record)) {
 		return false;
 	}
 	return true;

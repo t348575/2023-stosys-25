@@ -32,9 +32,9 @@ SOFTWARE.
 
 #include "LockManager.h"
 
+#include <fstream>
 #include <ftl.h>
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <zns_device.h>
 
@@ -226,7 +226,7 @@ namespace ROCKSDB_NAMESPACE {
 			uint64_t buffer_size;
 		};
 
-		void write_to_file(const char * data, uint64_t size) {
+		void write_to_file(const char *data, uint64_t size) {
 			std::ofstream f("f", std::ios::trunc);
 			f.write(data, size);
 			f.close();
