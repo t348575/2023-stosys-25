@@ -19,6 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 		while (left > 0) {
 			if (ptr == root_inode.size) {
 				*result = Slice(scratch, n - left);
+				std::cout << "Requested " << std::to_string(n) << " read " << std::to_string(n - left) << " last char " << std::to_string((int)scratch[n - left - 1]) << std::endl;
 				ptr++;
 				return IOStatus::OK();
 			}
@@ -50,13 +51,15 @@ namespace ROCKSDB_NAMESPACE {
 				return ret;
 			}
 
-			const auto op_size = std::min(std::min((uint64_t)zns_dev->lba_size_bytes, left), root_inode.size);
+			const auto op_size = std::min(std::min((uint64_t)zns_dev->lba_size_bytes, left), root_inode.size - ptr);
+			std::cout << "op_size " << std::to_string(op_size) << " file size " << std::to_string(root_inode.size) << " ptr " << std::to_string(ptr) << std::endl;
 			memcpy((uint8_t *)scratch + n - left, &buffer[0], op_size);
 			ptr += op_size;
 			disk_ptr++;
 			left -= op_size;
 		}
 		*result = Slice(scratch, n - left);
+		std::cout << "Requested " << std::to_string(n) << " read " << std::to_string(n - left) << " last char " << std::to_string((int)scratch[n - left - 1]) << std::endl;
 		return IOStatus::OK();
 	}
 
@@ -135,11 +138,19 @@ namespace ROCKSDB_NAMESPACE {
 			left -= op_size;
 			root_inode.inode.size += op_size;
 		}
+		std::cout << path << " size is: " << std::to_string(root_inode.inode.size) << " last char is " << std::to_string((int)(data.data() + data.size() - 1)[0]) << std::endl;
 		return IOStatus::OK();
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {
-		return fs->WriteINode({root_inode.inode, root_inode.ptr}, false);
+		RichInode ri;
+		ri.ptr = root_inode.ptr;
+		auto const ret = fs->ReadINode(ri.ptr, ri.inode);
+		if (!ret.ok()) {
+			return ret;
+		}
+		ri.inode.size = root_inode.inode.size;
+		return fs->WriteINode(ri, false);
 	}
 	IOStatus RocksWriteableFile::Close(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }
 	IOStatus RocksWriteableFile::Sync(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }

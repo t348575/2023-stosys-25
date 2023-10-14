@@ -48,6 +48,7 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus Sync(const IOOptions &options, IODebugContext *dbg);
 		void DeleteCurrentNode();
 
+		std::string path;
 	private:
 		RichInode root_inode, *current_inode;
 		std::vector<uint8_t> buffer;

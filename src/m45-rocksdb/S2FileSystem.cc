@@ -356,7 +356,7 @@ namespace ROCKSDB_NAMESPACE {
 			}
 		}
 
-		return IOStatus::NotFound();
+		return IOStatus::NotFound("find_inode: " + path);
 	}
 
 	IOStatus S2FileSystem::PlaceNewINodeBlock(const INode inode, INodePointer &ptr, bool flush) {
@@ -631,6 +631,7 @@ namespace ROCKSDB_NAMESPACE {
 											 std::unique_ptr<FSSequentialFile> *result,
 											 __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode base, inode;
 		std::string base_path;
 		auto const _fname = SanitizePath(fname);
@@ -643,7 +644,7 @@ namespace ROCKSDB_NAMESPACE {
 				return ret;
 			}
 		} else if (!ret.ok()) {
-			return IOStatus::NotFound();
+			return IOStatus::NotFound("newsequentialfile: " + fname);
 		}
 
 		result->reset(new RocksSequentialFile(inode.inode, zns_dev, this));
@@ -665,6 +666,7 @@ namespace ROCKSDB_NAMESPACE {
 											   std::unique_ptr<FSRandomAccessFile> *result,
 											   __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode inode;
 		auto const _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(_fname);
@@ -691,6 +693,7 @@ namespace ROCKSDB_NAMESPACE {
 										   std::unique_ptr<FSWritableFile> *result,
 										   __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode inode, base;
 		auto const _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(_fname);
@@ -703,7 +706,7 @@ namespace ROCKSDB_NAMESPACE {
 				return ret;
 			}
 		} else if (!ret.ok()) {
-			return IOStatus::NotFound();
+			return IOStatus::NotFound("newwritablefile" + fname);
 		} else if (ret.ok()) {
 			ret = RemoveItem(_fname, base_path, inode);
 			if (!ret.ok()) {
@@ -711,7 +714,9 @@ namespace ROCKSDB_NAMESPACE {
 			}
 		}
 
-		result->reset(new RocksWriteableFile(inode, this, zns_dev));
+		auto r = new RocksWriteableFile(inode, this, zns_dev);
+		r->path = fname;
+		result->reset(r);
 		return IOStatus::OK();
 	}
 
@@ -740,6 +745,7 @@ namespace ROCKSDB_NAMESPACE {
 										std::unique_ptr<FSDirectory> *result,
 										__attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << name << std::endl;
 		auto const _name = SanitizePath(name);
 		auto g = LockManager::WriteGuard(_name);
 		RichInode inode;
@@ -764,6 +770,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::CreateDir(const std::string &dirname, const IOOptions &options,
 									 __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << dirname << std::endl;
 		RichInode inode, base;
 		const auto _dirname = SanitizePath(dirname);
 		auto g = LockManager::WriteGuard(_dirname);
@@ -784,6 +791,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::CreateDirIfMissing(const std::string &dirname, const IOOptions &options,
 											  __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << dirname << std::endl;
 		RichInode inode, base;
 		const auto _dirname = SanitizePath(dirname);
 		std::string base_path = _dirname;
@@ -815,7 +823,7 @@ namespace ROCKSDB_NAMESPACE {
 				dirs_to_create.pop();
 			}
 		} else if (!ret.ok()) {
-			return IOStatus::NotFound();
+			return IOStatus::NotFound("createdirifmissing: " + dirname);
 		}
 		return IOStatus::OK();
 	}
@@ -823,6 +831,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::GetFileSize(const std::string &fname, const IOOptions &options, uint64_t *file_size,
 									   __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode inode;
 		const auto _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(_fname);
@@ -837,6 +846,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::DeleteDir(const std::string &dirname, const IOOptions &options,
 									 __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << dirname << std::endl;
 		RichInode inode;
 		const auto _dirname = SanitizePath(dirname);
 		auto g = LockManager::WriteGuard(_dirname);
@@ -904,12 +914,14 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::GetAbsolutePath(const std::string &db_path, const IOOptions &options,
 										   std::string *output_path, __attribute__((unused)) IODebugContext *dbg) {
 		*output_path = SanitizePath(db_path);
+		std::cout << "func " << __FUNCTION__ << db_path << db_path << std::endl;
 		return IOStatus::OK();
 	}
 
 	IOStatus S2FileSystem::DeleteFile(const std::string &fname, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode inode, base_inode;
 		const auto _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(fname);
@@ -928,6 +940,7 @@ namespace ROCKSDB_NAMESPACE {
 
 	IOStatus S2FileSystem::NewLogger(const std::string &fname, const IOOptions &io_opts,
 									 std::shared_ptr<Logger> *result, __attribute__((unused)) IODebugContext *dbg) {
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		return IOStatus::OK();
 	}
 
@@ -979,6 +992,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::RenameFile(const std::string &src, const std::string &target, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << src << "\t" << target << std::endl;
 		RichInode src_ri, src_base_ri, inode, base;
 
 		auto const _src = SanitizePath(src);
@@ -999,9 +1013,9 @@ namespace ROCKSDB_NAMESPACE {
 				if (!ret.ok()) {
 					return ret;
 				}
+			} else {
+				return ret;
 			}
-
-			return ret;
 		}
 
 		DirectorySuperBlock directory_super_block;
@@ -1061,7 +1075,7 @@ namespace ROCKSDB_NAMESPACE {
 		}
 
 		buffer.resize(buffer_index + 1);
-		return OverWriteEntireFile(inode, buffer);
+		return OverWriteEntireFile(src_base_ri, buffer);
 	}
 
 	IOStatus S2FileSystem::RemoveItem(const std::string path, const std::string base_path, const RichInode ri) {
@@ -1234,6 +1248,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::GetChildren(const std::string &dir, const IOOptions &options,
 									   std::vector<std::string> *result, __attribute__((unused)) IODebugContext *dbg) {
 		UNUSED(options);
+		std::cout << "func " << __FUNCTION__ << dir << std::endl;
 		PROFILE_FS_FUNCTION();
 		RichInode inode;
 		const auto _dirname = SanitizePath(dir);
@@ -1263,6 +1278,7 @@ namespace ROCKSDB_NAMESPACE {
 	IOStatus S2FileSystem::FileExists(const std::string &fname, const IOOptions &options,
 									  __attribute__((unused)) IODebugContext *dbg) {
 		PROFILE_FS_FUNCTION();
+		std::cout << "func " << __FUNCTION__ << fname << std::endl;
 		RichInode inode;
 		auto const _fname = SanitizePath(fname);
 		auto g = LockManager::WriteGuard(_fname);

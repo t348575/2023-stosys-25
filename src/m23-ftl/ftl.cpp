@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <fstream>
 
 #include "../common/VisualProfiler.hpp"
 #include "../common/utils.h"
@@ -103,6 +104,51 @@ void DataMap::init(user_zns_device *_device, const device_data *_dd) {
 						.flag = status_flag::Valid});
 		}
 	}
+	uint64_t bytes_needed = 0;
+	for (const auto &lz : log_zones) {
+		bytes_needed += (lz.logs.size() * 2 * 16) + 25;
+	}
+
+	bytes_needed += dd->n_zones * 17;
+	bytes_needed += 8;
+
+	const uint64_t blocks_needed =
+			closest_upper_multiple(device->lba_size_bytes, bytes_needed) / device->lba_size_bytes;
+	if (zone_desc->wp + blocks_needed >= dd->zone_size) {
+		ret = ss_zns_device_zone_reset(dd->fd, dd->nsid, 1);
+		if (ret != 0) {
+			std::cerr << "ERROR: Could not reset metadata zone: " << nvme_status_to_string(ret, false) << std::endl;
+			return;
+		}
+	}
+
+	std::vector<uint8_t> buffer;
+	buffer.resize(blocks_needed * device->lba_size_bytes);
+	buffer_ptr = 0;
+	for (auto const &dz : data_zones) {
+		buffer[buffer_ptr] = dz.record.flag;
+		u64_to_buffer(dz.record.base_address, &buffer[buffer_ptr + 1]);
+		u64_to_buffer(dz.record.p_address, &buffer[buffer_ptr + 9]);
+		buffer_ptr += 17;
+	}
+
+	for (auto const &lz : log_zones) {
+		buffer[buffer_ptr] = lz.is_seq;
+		u64_to_buffer(lz.p_address, &buffer[buffer_ptr + 1]);
+		u64_to_buffer(lz.base_address, &buffer[buffer_ptr + 9]);
+		u64_to_buffer(lz.logs.size(), &buffer[buffer_ptr + 17]);
+		buffer_ptr += 25;
+		for (auto const &entry : lz.logs) {
+			u64_to_buffer(entry.l_address, &buffer[buffer_ptr]);
+			u64_to_buffer(entry.p_address, &buffer[buffer_ptr + 8]);
+			buffer_ptr += 16;
+		}
+	}
+	u64_to_buffer(blocks_needed, &buffer[buffer.size() - 8]);
+
+	std::ofstream f("write_confirmation", std::ios::trunc);
+	f.write((const char*)&buffer[0], buffer.size());
+	f.close();
 	init_cache();
 }
 
@@ -306,10 +352,17 @@ void DataMap::delete_from_log_if_exists(const uint64_t address) {
 void DataMap::write_metadata() {
 	records->log_mtx.lock();
 	records->data_mtx.lock();
-	nvme_zone_report zone_report;
-	int ret = nvme_zns_report_zones(dd->fd, dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, sizeof(zone_report),
-									&zone_report);
-	const nvme_zns_desc *zone_desc = (struct nvme_zns_desc *)(void *)&zone_report;
+	const uint64_t size_zone_report = sizeof(nvme_zone_report) + device->tparams.zns_num_zones * sizeof(nvme_zns_desc);
+	std::vector<uint8_t> zone_report;
+	zone_report.resize(size_zone_report);
+	int ret = nvme_zns_report_zones(dd->fd, dd->nsid, 0, false, NVME_ZNS_ZRAS_REPORT_ALL, true, size_zone_report,
+									&zone_report[0]);
+	if (ret != 0) {
+		std::cerr << "ERROR: could not get report-zones: " << nvme_status_to_string(ret, false) << std::endl;
+	}
+
+	struct nvme_zone_report *r = (nvme_zone_report *)&zone_report[0];
+	struct nvme_zns_desc *zone_desc = (nvme_zns_desc *)(&zone_report[0] + sizeof(*r));
 
 	uint64_t bytes_needed = 0;
 	for (const auto &lz : log_zones) {
@@ -356,6 +409,10 @@ void DataMap::write_metadata() {
 	if (ret != 0) {
 		std::cerr << "ERROR: could not write metadata to disk: " << nvme_status_to_string(ret, false) << std::endl;
 	}
+
+	std::ofstream f("write", std::ios::trunc);
+	f.write((const char*)&buffer[0], buffer.size());
+	f.close();
 
 	records->log_mtx.unlock();
 	records->data_mtx.unlock();

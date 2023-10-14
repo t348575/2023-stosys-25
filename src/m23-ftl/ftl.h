@@ -104,11 +104,13 @@ public:
 	};
 	std::array<ReadCacheEntry, READ_CACHE_SIZE> read_cache;
 	void init_cache() {
+#ifdef USE_CACHE
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
 			ReadCacheEntry r = {.buffer = std::vector<uint8_t>(), .address = 0, .is_valid = false};
 			r.buffer.resize(device->lba_size_bytes);
 			read_cache[i] = r;
 		}
+#endif
 	}
 	void cache(const uint64_t address, const char *buffer) {
 #ifdef USE_CACHE

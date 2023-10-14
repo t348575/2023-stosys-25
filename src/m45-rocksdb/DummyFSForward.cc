@@ -66,7 +66,7 @@ namespace ROCKSDB_NAMESPACE {
                                                const FileOptions &file_opts,
                                                std::unique_ptr<FSSequentialFile> *result,
                                                __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->NewSequentialFile(fname, file_opts, result, dbg);
     }
     
@@ -81,7 +81,7 @@ namespace ROCKSDB_NAMESPACE {
             const std::string &fname, const FileOptions &file_opts,
             std::unique_ptr<FSRandomAccessFile> *result,
             __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->NewRandomAccessFile(fname, file_opts, result, dbg);
     }
 
@@ -96,7 +96,7 @@ namespace ROCKSDB_NAMESPACE {
                                              const FileOptions &file_opts,
                                              std::unique_ptr<FSWritableFile> *result,
                                              __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->NewWritableFile(fname, file_opts, result, dbg);
     }
 
@@ -158,7 +158,7 @@ namespace ROCKSDB_NAMESPACE {
                                           const IOOptions &io_opts,
                                           std::unique_ptr<FSDirectory> *result,
                                           __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << name << " " << std::endl;
         return this->_private_fs->NewDirectory(name, io_opts, result, dbg);
     }
 
@@ -170,7 +170,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::FileExists(const std::string &fname,
                                         const IOOptions &options,
                                         __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->FileExists(fname, options, dbg);
     }
 
@@ -184,7 +184,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::GetChildren(const std::string &dir, const IOOptions &options,
                                          std::vector<std::string> *result,
                                          __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << dir << " " << std::endl;
         return this->_private_fs->GetChildren(dir, options, result, dbg);
     }
 
@@ -209,7 +209,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::DeleteFile(const std::string &fname,
                                         const IOOptions &options,
                                         __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->DeleteFile(fname, options, dbg);
     }
 
@@ -224,7 +224,7 @@ namespace ROCKSDB_NAMESPACE {
 // Create the specified directory. Returns error if directory exists.
     IOStatus DummyFSForward::CreateDir(const std::string &dirname,
                                        const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << dirname << " " << std::endl;
         return this->_private_fs->CreateDir(dirname, options, dbg);
     }
 
@@ -233,14 +233,14 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::CreateDirIfMissing(const std::string &dirname,
                                                 const IOOptions &options,
                                                 __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << dirname << " " << std::endl;
         return this->_private_fs->CreateDirIfMissing(dirname, options, dbg);
     }
 
 // Delete the specified directory.
     IOStatus DummyFSForward::DeleteDir(const std::string &dirname,
                                        const IOOptions &options, __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << dirname << " " << std::endl;
         return this->_private_fs->DeleteDir(dirname, options, dbg);
     }
 
@@ -248,7 +248,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::GetFileSize(const std::string &fname,
                                          const IOOptions &options, uint64_t *file_size,
                                          __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->GetFileSize(fname, options, file_size, dbg);
     }
 
@@ -338,7 +338,7 @@ namespace ROCKSDB_NAMESPACE {
     IOStatus DummyFSForward::NewLogger(const std::string &fname, const IOOptions &io_opts,
                                        std::shared_ptr<Logger> *result,
                                        __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << fname << " " << std::endl;
         return this->_private_fs->NewLogger(fname, io_opts, result, dbg);
     }
 
@@ -347,7 +347,7 @@ namespace ROCKSDB_NAMESPACE {
                                              const IOOptions &options,
                                              std::string *output_path,
                                              __attribute__ ((unused)) IODebugContext *dbg) {
-        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << __LINE__ << " " << std::endl;
+        std::cout << get_seq_id() << " func: " << __FUNCTION__ << " line: " << db_path << " " << std::endl;
         return this->_private_fs->GetAbsolutePath(db_path,options, output_path, dbg);
     }
 

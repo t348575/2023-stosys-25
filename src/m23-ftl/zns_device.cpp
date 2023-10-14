@@ -522,7 +522,7 @@ void gc() {
 	reclaim_empty_log_zones();
 
 	uint64_t count = 0;
-	while (full_merge() > records->dd->zone_size / 4 && count < records->dd->log_zones * records->dd->zone_size) {
+	while (full_merge() > records->dd->zone_size / 4 && count < (records->dd->log_zones - 1) * records->dd->zone_size) {
 		while (merge_log_zones() != 0) {
 		}
 		reclaim_empty_log_zones();
