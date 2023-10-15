@@ -39,7 +39,6 @@ namespace ROCKSDB_NAMESPACE {
                                      std::string *errmsg) {
                         cout<<"Initialization uri is " << uri << " and errmsg: " << (*errmsg) << endl;
                         ret_fs->reset(new S2FileSystem(uri, true));
-                        // ret_fs->reset(new DummyFSForward());
                         return ret_fs->get();
                     });
 }

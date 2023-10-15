@@ -65,7 +65,8 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	RocksWriteableFile::RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev, bool preallocate)
+	RocksWriteableFile::RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev,
+										   bool preallocate)
 		: root_inode(root_inode), current_inode(&this->root_inode), fs(fs), zns_dev(zns_dev), preallocate(preallocate) {
 		buffer.resize(zns_dev->lba_size_bytes);
 		disk_ptr_idx = 0;
@@ -94,7 +95,10 @@ namespace ROCKSDB_NAMESPACE {
 				}
 			}
 
-			if (num_disk_ptrs == 0 || ((root_inode.inode.size + op_size > num_disk_ptrs * zns_dev->lba_size_bytes) && (!preallocate || (!current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_DISK_POINTERS) || (current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_NESTED_DISK_POINTERS)))) {
+			if (num_disk_ptrs == 0 ||
+				((root_inode.inode.size + op_size > num_disk_ptrs * zns_dev->lba_size_bytes) &&
+				 (!preallocate || (!current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_DISK_POINTERS) ||
+				  (current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_NESTED_DISK_POINTERS)))) {
 				RichInode *tmp = nullptr;
 				fs->AddDiskPointer(preallocate, current_inode, &tmp, disk_ptr_idx, num_disk_ptrs);
 				if (tmp != nullptr) {
@@ -158,10 +162,15 @@ namespace ROCKSDB_NAMESPACE {
 		init_status = IOStatus::OK();
 		RichInode current_ri;
 		current_ri.inode = root_inode;
-		const uint64_t total_disk_pointers = closest_upper_multiple(zns_dev->lba_size_bytes, root_inode.size) / zns_dev->lba_size_bytes;
+		const uint64_t total_disk_pointers =
+				closest_upper_multiple(zns_dev->lba_size_bytes, root_inode.size) / zns_dev->lba_size_bytes;
 		uint64_t passed_disk_pointers = 0;
 		while (true) {
-			const uint64_t to_use = std::min(std::min(passed_disk_pointers + current_ri.inode.num_disk_pointers, total_disk_pointers), passed_disk_pointers + (current_ri.inode.is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS)) - passed_disk_pointers;
+			const uint64_t to_use =
+					std::min(std::min(passed_disk_pointers + current_ri.inode.num_disk_pointers, total_disk_pointers),
+							 passed_disk_pointers +
+									 (current_ri.inode.is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS)) -
+					passed_disk_pointers;
 			disk_pointers.insert(disk_pointers.end(), current_ri.inode.disk_pointers,
 								 current_ri.inode.disk_pointers + to_use);
 

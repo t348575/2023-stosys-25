@@ -670,6 +670,7 @@ int zns_udevice_write(struct user_zns_device *my_dev, uint64_t address, void *bu
 }
 
 bool is_fresh_start() {
+	PROFILE_NVME_FUNCTION();
 	ftl_record record;
 	auto records = DataMap::get_instance();
 	if (records->find_in_log(0, record)) {

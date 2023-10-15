@@ -12,12 +12,13 @@
 #include <thread>
 #include <vector>
 
+#include "../common/VisualProfiler.hpp"
 #include "../common/unused.h"
 #include "zns_device.h"
 
 #define PREFER_SEQ_LOG
 #define USE_CACHE
-#define READ_CACHE_SIZE 32
+#define READ_CACHE_SIZE 1024
 
 enum status_flag : uint8_t { Valid = 0, Invalid = 2 };
 
@@ -105,6 +106,7 @@ public:
 	std::array<ReadCacheEntry, READ_CACHE_SIZE> read_cache;
 	void init_cache() {
 #ifdef USE_CACHE
+		PROFILE_FUNCTION_CATEGORY("ftl");
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
 			ReadCacheEntry r = {.buffer = std::vector<uint8_t>(), .address = 0, .is_valid = false};
 			r.buffer.resize(device->lba_size_bytes);
@@ -114,6 +116,7 @@ public:
 	}
 	void cache(const uint64_t address, const char *buffer) {
 #ifdef USE_CACHE
+		PROFILE_FUNCTION_CATEGORY("ftl");
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
 			if (read_cache[i].is_valid && read_cache[i].address == address) {
 				memcpy(&read_cache[i].buffer[0], buffer, device->lba_size_bytes);
@@ -146,6 +149,7 @@ public:
 	}
 	bool get_from_cache(const uint64_t address, char *buffer) {
 #ifdef USE_CACHE
+		PROFILE_FUNCTION_CATEGORY("ftl");
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
 			if (read_cache[i].is_valid && read_cache[i].address == address) {
 				read_cache[i].access_count++;

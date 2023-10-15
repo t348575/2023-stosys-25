@@ -237,7 +237,8 @@ namespace ROCKSDB_NAMESPACE {
 								   std::string &base_path);
 		IOStatus FindInodeWithBaseWithDirs(const std::string &path, RichInode &inode, RichInode &base_inode,
 										   std::string &base_path, FindInodeDirs &dirs);
-		IOStatus AddDiskPointer(const bool preallocate, RichInode *inode, RichInode **output, uint64_t &disk_ptr_idx, uint64_t &num_disk_ptrs);
+		IOStatus AddDiskPointer(const bool preallocate, RichInode *inode, RichInode **output, uint64_t &disk_ptr_idx,
+								uint64_t &num_disk_ptrs);
 
 		IOStatus CreateItem(const std::string &name, const S2EntryType item, const RichInode base_inode,
 							FindInodeDirs &dirs, RichInode &inode);

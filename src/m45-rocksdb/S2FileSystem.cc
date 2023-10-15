@@ -231,6 +231,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::WriteBlock(const uint64_t block, const uint8_t *data) {
+		PROFILE_FS_FUNCTION();
 		auto ret = zns_udevice_write(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									 zns_dev->lba_size_bytes);
 		if (ret != 0) {
@@ -240,6 +241,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::ReadBlock(const uint64_t block, uint8_t *data) {
+		PROFILE_FS_FUNCTION();
 		auto ret = zns_udevice_read(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									zns_dev->lba_size_bytes);
 		if (ret != 0) {
@@ -488,11 +490,13 @@ namespace ROCKSDB_NAMESPACE {
 		output.resize(closest_upper_multiple(zns_dev->lba_size_bytes, inode.size));
 		INode use_inode = inode;
 		uint64_t buffer_idx = 0;
-		uint64_t num_disk_pointers = closest_upper_multiple(zns_dev->lba_size_bytes, inode.size) / zns_dev->lba_size_bytes;
+		uint64_t num_disk_pointers =
+				closest_upper_multiple(zns_dev->lba_size_bytes, inode.size) / zns_dev->lba_size_bytes;
 		uint64_t read_disk_pointers = 0;
 		while (true) {
 			// TODO: optimize to sequential read later
-			for (uint64_t i = 0; i < use_inode.num_disk_pointers && read_disk_pointers < num_disk_pointers; i++, read_disk_pointers++) {
+			for (uint64_t i = 0; i < use_inode.num_disk_pointers && read_disk_pointers < num_disk_pointers;
+				 i++, read_disk_pointers++) {
 				auto ret = ReadBlock(use_inode.disk_pointers[i], &output[buffer_idx]);
 				if (!ret.ok()) {
 					return ret;
@@ -568,7 +572,8 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	IOStatus S2FileSystem::AddDiskPointer(const bool preallocate, RichInode *ri_node, RichInode **output, uint64_t &disk_ptr_idx, uint64_t &num_disk_ptrs) {
+	IOStatus S2FileSystem::AddDiskPointer(const bool preallocate, RichInode *ri_node, RichInode **output,
+										  uint64_t &disk_ptr_idx, uint64_t &num_disk_ptrs) {
 		PROFILE_FS_FUNCTION();
 		if ((!ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_DISK_POINTERS) ||
 			(ri_node->inode.is_nested && ri_node->inode.num_disk_pointers == NUM_NESTED_DISK_POINTERS)) {
@@ -578,7 +583,8 @@ namespace ROCKSDB_NAMESPACE {
 
 			while (new_inode->inode.num_disk_pointers < NUM_NESTED_DISK_POINTERS) {
 				new_inode->inode.num_disk_pointers++;
-				auto ret = PlaceNewDataBlock(new_inode->inode.disk_pointers[new_inode->inode.num_disk_pointers - 1], false);
+				auto ret = PlaceNewDataBlock(new_inode->inode.disk_pointers[new_inode->inode.num_disk_pointers - 1],
+											 false);
 				if (!ret.ok()) {
 					return ret;
 				}
