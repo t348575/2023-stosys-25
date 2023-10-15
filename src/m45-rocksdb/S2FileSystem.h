@@ -41,9 +41,9 @@ SOFTWARE.
 namespace ROCKSDB_NAMESPACE {
 	const static uint8_t BLOCK_BIT_MASKS[4] = {0b00000011, 0b00001100, 0b00110000, 0b11000000};
 	const static uint8_t RESET_BIT_MASKS[4] = {0b11111100, 0b11110011, 0b11001111, 0b00111111};
-	const static uint64_t INODE_SIZE = 132;
-	const static uint64_t NUM_DISK_POINTERS = 13;
-	const static uint64_t NUM_NESTED_DISK_POINTERS = 14;
+	const static uint64_t INODE_SIZE = 236;
+	const static uint64_t NUM_DISK_POINTERS = 26;
+	const static uint64_t NUM_NESTED_DISK_POINTERS = 27;
 	const static uint64_t DIR_BLOCK_PLAIN_SIZE = 18;
 	const static uint64_t DIR_SUPER_BLOCK_PLAIN_SIZE = 16;
 
@@ -237,7 +237,7 @@ namespace ROCKSDB_NAMESPACE {
 								   std::string &base_path);
 		IOStatus FindInodeWithBaseWithDirs(const std::string &path, RichInode &inode, RichInode &base_inode,
 										   std::string &base_path, FindInodeDirs &dirs);
-		IOStatus AddDiskPointer(RichInode *inode, RichInode **output);
+		IOStatus AddDiskPointer(const bool preallocate, RichInode *inode, RichInode **output, uint64_t &disk_ptr_idx, uint64_t &num_disk_ptrs);
 
 		IOStatus CreateItem(const std::string &name, const S2EntryType item, const RichInode base_inode,
 							FindInodeDirs &dirs, RichInode &inode);
@@ -248,7 +248,6 @@ namespace ROCKSDB_NAMESPACE {
 		IOStatus AddEntryToDirectory(const RichInode base_inode, FindInodeDirs &dirs, DirectoryEntry entry,
 									 RichInode &inode);
 		IOStatus RemoveItem(const std::string path, const std::string base_path, const RichInode ri);
-		RocksWriteableFile NewWritableFileByINode(const RichInode rich_inode);
 
 	private:
 		struct user_zns_device *zns_dev;

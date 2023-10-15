@@ -148,6 +148,7 @@ public:
 #ifdef USE_CACHE
 		for (uint32_t i = 0; i < READ_CACHE_SIZE; i++) {
 			if (read_cache[i].is_valid && read_cache[i].address == address) {
+				read_cache[i].access_count++;
 				memcpy(buffer, &read_cache[i].buffer[0], device->lba_size_bytes);
 				return true;
 			}

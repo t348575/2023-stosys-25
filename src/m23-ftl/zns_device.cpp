@@ -205,8 +205,6 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->log_zones = params->log_zones;
 	dd->n_zones = zones.nr_zones - params->log_zones;
 
-	std::cout << "Device has capacity " << std::to_string(zones.nr_zones) << std::endl;
-
 	if (!DataMap::get_instance()->gc_running) {
 		DataMap::get_instance()->init(*my_dev, dd);
 		std::thread t1(gc_loop);
@@ -613,6 +611,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 					  << std::endl;
 			return ret;
 		}
+		records->cache(record.l_address, (char *)buffer + (size - size_c));
 		size_c -= op_size;
 		address += size - size_c;
 	}

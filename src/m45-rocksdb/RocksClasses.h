@@ -41,7 +41,7 @@ namespace ROCKSDB_NAMESPACE {
 	class RocksWriteableFile : public FSWritableFile {
 	public:
 		RocksWriteableFile() = default;
-		RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev);
+		RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev, bool preallocate);
 		~RocksWriteableFile();
 
 		IOStatus Append(const Slice &data, const IOOptions &options, IODebugContext *dbg);
@@ -59,6 +59,8 @@ namespace ROCKSDB_NAMESPACE {
 		struct user_zns_device *zns_dev;
 		bool past_root = false;
 		bool has_read_last_block = false;
+		bool preallocate = true;
+		uint64_t disk_ptr_idx, num_disk_ptrs;
 	};
 
 	class RocksRandomAccessFile : public FSRandomAccessFile {

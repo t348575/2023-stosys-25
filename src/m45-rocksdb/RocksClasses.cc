@@ -65,9 +65,11 @@ namespace ROCKSDB_NAMESPACE {
 		return IOStatus::OK();
 	}
 
-	RocksWriteableFile::RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev)
-		: root_inode(root_inode), current_inode(&this->root_inode), fs(fs), zns_dev(zns_dev) {
+	RocksWriteableFile::RocksWriteableFile(RichInode root_inode, S2FileSystem *fs, struct user_zns_device *zns_dev, bool preallocate)
+		: root_inode(root_inode), current_inode(&this->root_inode), fs(fs), zns_dev(zns_dev), preallocate(preallocate) {
 		buffer.resize(zns_dev->lba_size_bytes);
+		disk_ptr_idx = 0;
+		num_disk_ptrs = current_inode->inode.num_disk_pointers;
 	}
 
 	RocksWriteableFile::~RocksWriteableFile() {
@@ -86,9 +88,15 @@ namespace ROCKSDB_NAMESPACE {
 			const uint64_t last_block_leftover = root_inode.inode.size % zns_dev->lba_size_bytes;
 			uint64_t op_size = std::min((uint64_t)zns_dev->lba_size_bytes, left);
 
-			if (last_block_leftover == 0 || current_inode->inode.num_disk_pointers == 0) {
+			if (last_block_leftover != 0) {
+				if (last_block_leftover + op_size > zns_dev->lba_size_bytes) {
+					op_size = zns_dev->lba_size_bytes - last_block_leftover;
+				}
+			}
+
+			if (num_disk_ptrs == 0 || ((root_inode.inode.size + op_size > num_disk_ptrs * zns_dev->lba_size_bytes) && (!preallocate || (!current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_DISK_POINTERS) || (current_inode->inode.is_nested && disk_ptr_idx + 1 == NUM_NESTED_DISK_POINTERS)))) {
 				RichInode *tmp = nullptr;
-				fs->AddDiskPointer(current_inode, &tmp);
+				fs->AddDiskPointer(preallocate, current_inode, &tmp, disk_ptr_idx, num_disk_ptrs);
 				if (tmp != nullptr) {
 					if (past_root) {
 						delete current_inode;
@@ -96,9 +104,11 @@ namespace ROCKSDB_NAMESPACE {
 					past_root = true;
 					current_inode = tmp;
 				}
+			} else if (last_block_leftover == 0) {
+				disk_ptr_idx++;
 			}
 
-			auto current_disk_ptr = current_inode->inode.disk_pointers[current_inode->inode.num_disk_pointers - 1];
+			auto current_disk_ptr = current_inode->inode.disk_pointers[disk_ptr_idx];
 			if (last_block_leftover != 0) {
 				if (!has_read_last_block) {
 					has_read_last_block = true;
@@ -106,10 +116,6 @@ namespace ROCKSDB_NAMESPACE {
 					if (!ret.ok()) {
 						return ret;
 					}
-				}
-
-				if (last_block_leftover + op_size > zns_dev->lba_size_bytes) {
-					op_size = zns_dev->lba_size_bytes - last_block_leftover;
 				}
 
 				memcpy(&buffer[last_block_leftover], data.data() + data.size() - left, op_size);
@@ -131,10 +137,11 @@ namespace ROCKSDB_NAMESPACE {
 					return ret;
 				}
 			}
+
 			left -= op_size;
 			root_inode.inode.size += op_size;
 		}
-		return Flush(options, dbg);
+		return IOStatus::OK();
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {
@@ -151,9 +158,18 @@ namespace ROCKSDB_NAMESPACE {
 		init_status = IOStatus::OK();
 		RichInode current_ri;
 		current_ri.inode = root_inode;
+		const uint64_t total_disk_pointers = closest_upper_multiple(zns_dev->lba_size_bytes, root_inode.size) / zns_dev->lba_size_bytes;
+		uint64_t passed_disk_pointers = 0;
 		while (true) {
+			const uint64_t to_use = std::min(std::min(passed_disk_pointers + current_ri.inode.num_disk_pointers, total_disk_pointers), passed_disk_pointers + (current_ri.inode.is_nested ? NUM_NESTED_DISK_POINTERS : NUM_DISK_POINTERS)) - passed_disk_pointers;
 			disk_pointers.insert(disk_pointers.end(), current_ri.inode.disk_pointers,
-								 current_ri.inode.disk_pointers + current_ri.inode.num_disk_pointers);
+								 current_ri.inode.disk_pointers + to_use);
+
+			passed_disk_pointers += to_use;
+			if (to_use != current_ri.inode.num_disk_pointers) {
+				break;
+			}
+
 			if (!current_ri.inode.use_next_pointer) {
 				break;
 			}
