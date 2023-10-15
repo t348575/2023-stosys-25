@@ -121,7 +121,7 @@ namespace ROCKSDB_NAMESPACE {
 		// make sure to setup these parameters properly and check the forced reset flag for M5
 		params.name = (char *)device.c_str();
 		params.log_zones = 16;
-		params.gc_wmark = 0;
+		params.gc_wmark = 1;
 		params.force_reset = true;
 		int ret = init_ss_zns_device(&params, &this->zns_dev);
 		if (ret != 0) {
@@ -662,6 +662,7 @@ namespace ROCKSDB_NAMESPACE {
 		// std::cout << "Data blocks " << std::to_string(data) << std::endl;
 		// std::cout << "Inode blocks " << std::to_string(inode) << std::endl;
 		WriteBlockMap();
+		PROFILER_FLUSH();
 	}
 
 	// Create a brand new sequentially-readable file with the specified name.

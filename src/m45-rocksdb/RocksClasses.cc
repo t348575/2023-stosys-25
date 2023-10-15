@@ -138,6 +138,7 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {
+		PROFILE_SCOPE("fs", "RocksWriteableFile::Flush");
 		return fs->WriteINode(root_inode);
 	}
 	IOStatus RocksWriteableFile::Close(const IOOptions &options, IODebugContext *dbg) { return Flush(options, dbg); }

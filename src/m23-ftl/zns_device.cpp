@@ -205,6 +205,8 @@ int init_ss_zns_device(struct zdev_init_params *params, struct user_zns_device *
 	dd->log_zones = params->log_zones;
 	dd->n_zones = zones.nr_zones - params->log_zones;
 
+	std::cout << "Device has capacity " << std::to_string(zones.nr_zones) << std::endl;
+
 	if (!DataMap::get_instance()->gc_running) {
 		DataMap::get_instance()->init(*my_dev, dd);
 		std::thread t1(gc_loop);
@@ -549,6 +551,7 @@ void gc_loop() {
 			records->log_mtx.unlock_shared();
 		}
 	}
+	PROFILER_FLUSH();
 	records->gc_exited = true;
 }
 

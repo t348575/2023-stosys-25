@@ -17,7 +17,7 @@
 
 #define PREFER_SEQ_LOG
 #define USE_CACHE
-#define READ_CACHE_SIZE 1024
+#define READ_CACHE_SIZE 32
 
 enum status_flag : uint8_t { Valid = 0, Invalid = 2 };
 
