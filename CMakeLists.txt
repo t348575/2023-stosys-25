@@ -111,9 +111,13 @@ src/m23-ftl/ftl.cpp src/m23-ftl/ftl.h
 src/m23-ftl/zns_device.cpp src/m23-ftl/zns_device.h  src/m23-ftl/backup_zns_device_file.cpp 
 src/common/nvmeprint.cpp src/common/nvmeprint.h src/common/utils.cpp src/common/utils.h src/common/stosys_debug.h src/common/unused.h)
 
+add_library(visual-profiler SHARED
+src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
+
 if (STOSYS_PROFILING)
-    target_sources(stosys PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
-    target_link_libraries(stosys perfetto)
+    target_link_libraries(stosys visual-profiler perfetto)
+else()
+    target_link_libraries(stosys visual-profiler)
 endif()
 
 target_link_libraries(stosys pthread ${NVME_LIBRARIES})
@@ -138,16 +142,14 @@ add_executable(m2 src/m23-ftl/m2.cpp)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m2 ${NVME_LIBRARIES} pthread stosys)
 if (STOSYS_PROFILING)
-    target_sources(m2 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
-    target_link_libraries(m2 perfetto)
+    target_link_libraries(m2 visual-profiler perfetto)
 endif()
 
 add_executable(m3 src/m23-ftl/m3.cpp)
 add_definitions (${NVME_CFLAGS})
 target_link_libraries(m3 ${NVME_LIBRARIES} pthread stosys)
 if (STOSYS_PROFILING)
-    target_sources(m3 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
-    target_link_libraries(m3 perfetto)
+    target_link_libraries(m3 visual-profiler perfetto)
 endif()
 
 # starting here, we need more setup for RocksDB
@@ -164,28 +166,32 @@ if(STOSYS_M45)
     link_directories(${CMAKE_LIBRARY_PATH})
 
     if (STOSYS_FS_DEBUG)
-        add_executable(m45 src/m45-rocksdb/debug-m45_main.cc 
+        add_executable(m45-debug src/m45-rocksdb/debug-m45_main.cc 
         src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
         src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
         src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
-    else()
-        add_executable(m45 src/m45-rocksdb/m45_main.cc 
-        src/m45-rocksdb/rocksdb_s2fs.cc
-        src/m45-rocksdb/DummyFSForward.cc src/m45-rocksdb/DummyFSForward.h 
-        src/m45-rocksdb/MyRocksContext.h 
-        src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
-        src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
-        src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
+
+        add_definitions (${NVME_CFLAGS} ${ROCKSDB_CFLAGS}  ${ROCKSDB_STATIC_CFLAGS} ${ROCKSDB_CFLAGS_OTHER})
+        target_link_libraries(m45-debug pthread stosys ssl crypto ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
+        # if we are not going to install the headers then we need to tell where they are
+        target_include_directories(m45-debug PRIVATE ./src/m23-ftl/ ./src/common/)
     endif()
 
+    add_executable(m45 src/m45-rocksdb/m45_main.cc 
+    src/m45-rocksdb/rocksdb_s2fs.cc
+    src/m45-rocksdb/DummyFSForward.cc src/m45-rocksdb/DummyFSForward.h 
+    src/m45-rocksdb/MyRocksContext.h 
+    src/m45-rocksdb/LockManager.cc src/m45-rocksdb/LockManager.h
+    src/m45-rocksdb/S2FileSystem.cc src/m45-rocksdb/S2FileSystem.h
+    src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
+
     if (STOSYS_PROFILING)
-        target_sources(m45 PUBLIC src/common/VisualProfiler.cc src/common/VisualProfiler.hpp)
-        target_link_libraries(m45 perfetto)
+        target_link_libraries(m45 visual-profiler perfetto)
     endif()
 
     # see all the defined variables here: https://cmake.org/cmake/help/latest/module/FindPkgConfig.html
     add_definitions (${NVME_CFLAGS} ${ROCKSDB_CFLAGS}  ${ROCKSDB_STATIC_CFLAGS} ${ROCKSDB_CFLAGS_OTHER})
-    target_link_libraries(m45 pthread stosys ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
+    target_link_libraries(m45 pthread stosys ssl crypto ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
     # if we are not going to install the headers then we need to tell where they are
     target_include_directories(m45 PRIVATE ./src/m23-ftl/ ./src/common/)
 else()

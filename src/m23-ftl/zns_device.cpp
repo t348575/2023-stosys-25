@@ -59,7 +59,7 @@ inline int ss_zns_device_zone_reset(uint64_t slba) {
 typedef int (*nvme_op)(int, uint32_t, uint64_t, uint16_t, void *, uint64_t);
 int ss_nvme_device_io_with_mdts(uint64_t slba, void *buffer, uint64_t buf_size, bool read) {
 	std::string name = "mdts_" + std::string(read ? "read" : "write") + "_" + std::to_string(buf_size);
-	PROFILE_SCOPE("nvme", name.c_str());
+	PROFILE_SCOPE("nvme", name);
 	uint16_t numbers;
 	int ret = 0;
 	uint64_t size = buf_size;
@@ -455,9 +455,9 @@ void reorder_write_seq_log_zone() {
 			continue;
 		}
 
-		// if (records->log_zones[i].logs.size() < records->dd->zone_size * 0.75) {
-		// 	continue;
-		// }
+		if (records->log_zones[i].logs.size() < records->dd->zone_size * 0.75) {
+			continue;
+		}
 
 		data_buffer.resize(records->device->tparams.zns_zone_capacity);
 		log_buffer.resize(records->device->tparams.zns_zone_capacity);
@@ -503,10 +503,10 @@ void reorder_write_seq_log_zone() {
 		records->log_zones[i].is_seq = false;
 		records->log_zones[i].logs.clear();
 
-		// uint64_t num_free_log_pages = records->count_free_log_pages();
-		// if (num_free_log_pages / records->dd->zone_size > records->dd->gc_wmark) {
-		// 	return;
-		// }
+		uint64_t num_free_log_pages = records->count_free_log_pages();
+		if (num_free_log_pages / records->dd->zone_size > records->dd->gc_wmark) {
+			return;
+		}
 	}
 #endif
 }
@@ -523,8 +523,7 @@ void gc() {
 
 	uint64_t count = 0;
 	while (full_merge() > records->dd->zone_size / 4 && count < (records->dd->log_zones - 1) * records->dd->zone_size) {
-		while (merge_log_zones() != 0) {
-		}
+		while (merge_log_zones() != 0) {}
 		reclaim_empty_log_zones();
 		count++;
 	}
@@ -603,7 +602,7 @@ int zns_udevice_read(struct user_zns_device *my_dev, uint64_t address, void *buf
 					closest_lower_multiple(records->dd->zone_size, next_record.p_address) == base_p_address;
 		}
 
-		op_size = std::min(size_c, next_address);
+		op_size = std::min(size_c, next_address - address == 0 ? records->device->lba_size_bytes : next_address - address);
 
 		int ret = ss_nvme_device_io_with_mdts(record.p_address, (char *)buffer + (size - size_c), op_size, true);
 		if (ret != 0) {

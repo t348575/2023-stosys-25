@@ -241,7 +241,8 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	IOStatus S2FileSystem::ReadBlock(const uint64_t block, uint8_t *data) {
-		PROFILE_FS_FUNCTION();
+		const std::string name = "ReadBlock::" + std::to_string((block + block_map_offset) * zns_dev->lba_size_bytes);
+		PROFILE_SCOPE("fs", name);
 		auto ret = zns_udevice_read(zns_dev, (block + block_map_offset) * zns_dev->lba_size_bytes, (void *)&data[0],
 									zns_dev->lba_size_bytes);
 		if (ret != 0) {
@@ -652,37 +653,6 @@ namespace ROCKSDB_NAMESPACE {
 	}
 
 	S2FileSystem::~S2FileSystem() {
-		// uint64_t empty = 0;
-		// uint64_t data = 0;
-		// uint64_t inode = 0;
-		// for (uint64_t i = 0; i < block_map_size; i++) {
-		// 	// std::cout << std::to_string(i) << " ";
-		// 	// std::cout << std::to_string(block_map[i]) << " ";
-		// 	for (uint8_t j = 0; j < 4; j++) {
-		// 		auto const block_num = (i * 4) + j;
-		// 		BlockType const block_type =
-		// 				(S2FileSystem::BlockType)(BLOCK_BIT_MASKS[0] & block_map[block_num / 4] >> (block_num % 4) * 2);
-		// 		// std::cout << std::to_string(block_type) << " ";
-		// 		switch (block_type) {
-		// 			case S2FileSystem::BlockType::Data: {
-		// 				data++;
-		// 				break;
-		// 			}
-		// 			case S2FileSystem::BlockType::Inode: {
-		// 				inode++;
-		// 				break;
-		// 			}
-		// 			case S2FileSystem::BlockType::Unused: {
-		// 				empty++;
-		// 				break;
-		// 			}
-		// 		}
-		// 	}
-		// 	// std::cout << std::endl;
-		// }
-		// std::cout << "Free blocks " << std::to_string(empty) << std::endl;
-		// std::cout << "Data blocks " << std::to_string(data) << std::endl;
-		// std::cout << "Inode blocks " << std::to_string(inode) << std::endl;
 		WriteBlockMap();
 		PROFILER_FLUSH();
 	}

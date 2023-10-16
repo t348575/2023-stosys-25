@@ -145,7 +145,7 @@ namespace ROCKSDB_NAMESPACE {
 			left -= op_size;
 			root_inode.inode.size += op_size;
 		}
-		return IOStatus::OK();
+		return Flush(options, dbg);
 	}
 
 	IOStatus RocksWriteableFile::Flush(const IOOptions &options, IODebugContext *dbg) {

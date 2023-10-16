@@ -19,14 +19,14 @@ std::vector<uint8_t> read_file(const std::string name) {
 int main(int argc, char **argv) {
     rdb::S2FileSystem z = rdb::S2FileSystem("s2fs:nvme0n1:///tmp/testdb/", true);
 
-    std::vector<std::string> dirs;
-    z.GetChildren("/tmp/testdb", rdb::IOOptions(), &dirs, nullptr);
-    std::cout << "Children of /tmp/testdb are: " << std::endl;
-    for (const auto &t: dirs) {
-        uint64_t file_size;
-        z.GetFileSize("/tmp/testdb/" + t, rdb::IOOptions(), &file_size, nullptr);
-        std::cout << "/tmp/testdb/" << t << " with size " << std::to_string(file_size) << std::endl;
-    }
+    // std::vector<std::string> dirs;
+    // z.GetChildren("/tmp/testdb", rdb::IOOptions(), &dirs, nullptr);
+    // std::cout << "Children of /tmp/testdb are: " << std::endl;
+    // for (const auto &t: dirs) {
+    //     uint64_t file_size;
+    //     z.GetFileSize("/tmp/testdb/" + t, rdb::IOOptions(), &file_size, nullptr);
+    //     std::cout << "/tmp/testdb/" << t << " with size " << std::to_string(file_size) << std::endl;
+    // }
 
     // auto actual = read_file("run_1/MANIFEST-000004");
     // std::unique_ptr<rdb::FSSequentialFile> s2fs_manifest;
@@ -100,8 +100,8 @@ int main(int argc, char **argv) {
     //     return 0;
     // }
 
-    // std::unique_ptr<rdb::FSSequentialFile> file;
-    // z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
+    std::unique_ptr<rdb::FSSequentialFile> file;
+    z.CreateDirIfMissing("/a", rdb::IOOptions(), nullptr);
     // z.CreateDir("/a", rdb::IOOptions(), nullptr);
     // z.CreateDirIfMissing("/b", rdb::IOOptions(), nullptr);
     // z.CreateDirIfMissing("/a/b", rdb::IOOptions(), nullptr);
@@ -110,12 +110,12 @@ int main(int argc, char **argv) {
 
         // z.RenameFile("/a/c", "/a/d", rdb::IOOptions(), nullptr);
 
-        // std::vector<std::string> dirs;
-        // z.GetChildren("/a", rdb::IOOptions(), &dirs, nullptr);
-        // std::cout << "Children of /a are: " << std::endl;
-        // for (const auto &t: dirs) {
-        //     std::cout << "/a/" << t << std::endl;
-        // }
+        std::vector<std::string> dirs;
+        z.GetChildren("/a", rdb::IOOptions(), &dirs, nullptr);
+        std::cout << "Children of /a are: " << std::endl;
+        for (const auto &t: dirs) {
+            std::cout << "/a/" << t << std::endl;
+        }
     // }
 
     // rdb::RichInode i, bi;
@@ -127,22 +127,29 @@ int main(int argc, char **argv) {
     //     std::cout << "/" << t.name << std::endl;
     // }
 
-    // auto const num_action = 188416;
+    auto const num_action = 458984;
     // // if (argc == 1) {
-    //     std::unique_ptr<rdb::FSWritableFile> wr_file;
-    //     if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
-    //         std::cout << "Could not create writeable file" << std::endl;
-    //     }
+        // std::unique_ptr<rdb::FSWritableFile> wr_file;
+        // if (!z.NewWritableFile("/a/c", rdb::FileOptions(), &wr_file, nullptr).ok()) {
+        //     std::cout << "Could not create writeable file" << std::endl;
+        // }
         
-    //     std::vector<uint8_t> buffer;
-    //     for (uint32_t i = 0; i < num_action; i++) {
-    //         buffer.push_back(i % 0xFF);
-    //     }
-    //     buffer.push_back('\n');
+        // std::vector<uint8_t> buffer;
+        // uint64_t itr = 0;
+        // uint8_t buf[8];
+        // while (buffer.size() != num_action) {
+        //     u64_to_buffer(itr, buf);
+        //     buffer.insert(buffer.end(), buf, buf + 8);
+        //     itr++;
+        // }
+        // // for (uint32_t i = 0; i < num_action; i++) {
+        // //     buffer.push_back(i % 0xFF);
+        // // }
+        // buffer.push_back('\n');
 
-    //     auto s = rdb::Slice((char*)&buffer[0], num_action);
-    //     wr_file->Append(s, rdb::IOOptions(), nullptr);
-    //     wr_file->Close(rdb::IOOptions(), nullptr);
+        // auto s = rdb::Slice((char*)&buffer[0], num_action);
+        // wr_file->Append(s, rdb::IOOptions(), nullptr);
+        // wr_file->Close(rdb::IOOptions(), nullptr);
     // }
     // z.NewSequentialFile("/a/d", rdb::FileOptions(), &file, nullptr);
     // z.RenameFile("/a/c", "/a/d", rdb::IOOptions(), nullptr);
@@ -158,20 +165,24 @@ int main(int argc, char **argv) {
     //     for (const auto &t: dirs1) {
     //         std::cout << "/" << t << std::endl;
     //     }
-    // std::vector<char> temp_buffer;
-    // temp_buffer.resize(num_action);
-    // z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);
+    std::vector<char> final_buffer, temp_buffer;
+    temp_buffer.resize(32768);
+    z.NewSequentialFile("/a/c", rdb::FileOptions(), &file, nullptr);
 
-    // rdb::Slice slice;
-    // if (!file->Read(num_action, rdb::IOOptions(), &slice, &temp_buffer[0], nullptr).ok()) {
-    //     std::cout << "Could not read" << std::endl;
-    // }
+    rdb::Slice slice;
+    do {
+        if (!file->Read(32768, rdb::IOOptions(), &slice, &temp_buffer[0], nullptr).ok()) {
+            std::cout << "Could not read" << std::endl;
+        }
+        final_buffer.insert(final_buffer.end(), slice.data(), slice.data() + slice.size());
+    } while(slice.size() == 32768);
 
-    // for (uint32_t i = 0; i < num_action; i++) {
-    //     if ((uint8_t)*(slice.data() + i) != (uint8_t)(i % 0xFF)) {
-    //         std::cout << "Not matching " << std::to_string(i) << " " << std::to_string((uint8_t)*(slice.data() + i)) << " " << std::to_string(i % 0xFF) << std::endl;
-    //     }
-    // }
+    uint64_t itr = 0;
+    for (uint32_t i = 0; i < num_action; i+=8, itr++) {
+        if (u64_from_buffer((uint8_t*)&final_buffer[i]) != itr) {
+            std::cout << "Not matching" << std::endl;
+        }
+    }
 
     // std::unique_ptr<rdb::FSRandomAccessFile> r_file;
     // z.NewRandomAccessFile("/a/c", rdb::FileOptions(), &r_file, nullptr);
