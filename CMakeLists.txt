@@ -172,7 +172,7 @@ if(STOSYS_M45)
         src/m45-rocksdb/RocksClasses.cc src/m45-rocksdb/RocksClasses.h)
 
         add_definitions (${NVME_CFLAGS} ${ROCKSDB_CFLAGS}  ${ROCKSDB_STATIC_CFLAGS} ${ROCKSDB_CFLAGS_OTHER})
-        target_link_libraries(m45-debug pthread stosys ssl crypto ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
+        target_link_libraries(m45-debug pthread stosys ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
         # if we are not going to install the headers then we need to tell where they are
         target_include_directories(m45-debug PRIVATE ./src/m23-ftl/ ./src/common/)
     endif()
@@ -191,7 +191,7 @@ if(STOSYS_M45)
 
     # see all the defined variables here: https://cmake.org/cmake/help/latest/module/FindPkgConfig.html
     add_definitions (${NVME_CFLAGS} ${ROCKSDB_CFLAGS}  ${ROCKSDB_STATIC_CFLAGS} ${ROCKSDB_CFLAGS_OTHER})
-    target_link_libraries(m45 pthread stosys ssl crypto ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
+    target_link_libraries(m45 pthread stosys ${ROCKSDB_STATIC_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZSTD_LIBRARIES} ${LZ4_LIBRARIES} ${BZIP2_LIBRARIES})
     # if we are not going to install the headers then we need to tell where they are
     target_include_directories(m45 PRIVATE ./src/m23-ftl/ ./src/common/)
 else()
